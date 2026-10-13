@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -592,6 +593,7 @@ private fun CrewField(
             },
             label = { Text(tr(R.string.msg_crew_ce392cd)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -619,6 +621,7 @@ private fun CrewFieldInline(
         },
         label = { Text(tr(R.string.msg_crew_ce392cd)) },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         modifier = modifier
     )
 }
@@ -904,7 +907,7 @@ private fun SnkDoubleRow(
             textStyle = MaterialTheme.typography.bodyMedium.copy(
                 color = MaterialTheme.colorScheme.onSurface
             ),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
             modifier = Modifier
                 .weight(1f)
                 .height(CompactRowHeight)
@@ -953,7 +956,8 @@ private fun CompactTextField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    keyboardType: KeyboardType = KeyboardType.Text
+    keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Next
 ) {
     var tfv by remember(value) {
         mutableStateOf(
@@ -977,7 +981,7 @@ private fun CompactTextField(
         textStyle = MaterialTheme.typography.bodyMedium.copy(
             color = MaterialTheme.colorScheme.onSurface
         ),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
         modifier = modifier
             .height(CompactRowHeight)
             .border(
@@ -1014,7 +1018,8 @@ private fun CompactIntField(
     placeholder: String,
     value: Int,
     onValueChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    imeAction: ImeAction = ImeAction.Next
 ) {
     CompactTextField(
         placeholder = placeholder,
@@ -1024,7 +1029,8 @@ private fun CompactIntField(
             onValueChange(digits.toIntOrNull() ?: 0)
         },
         modifier = modifier,
-        keyboardType = KeyboardType.Number
+        keyboardType = KeyboardType.Number,
+        imeAction = imeAction
     )
 }
 
@@ -1033,7 +1039,8 @@ private fun CompactDoubleField(
     placeholder: String,
     value: Double,
     onValueChange: (Double) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    imeAction: ImeAction = ImeAction.Next
 ) {
     var tfv by remember(value) {
         val s = formatDouble(value)
@@ -1063,7 +1070,7 @@ private fun CompactDoubleField(
         textStyle = MaterialTheme.typography.bodyMedium.copy(
             color = MaterialTheme.colorScheme.onSurface
         ),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
         modifier = modifier
             .height(CompactRowHeight)
             .border(
