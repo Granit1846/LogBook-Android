@@ -14,7 +14,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -59,7 +61,8 @@ data class SyncUiState(
     val syncSeq: Long = 0L,
     val sharedSpace: Boolean = false,
     val sharedCatalog: List<SharedProfileInfo> = emptyList(),
-    val showSharedPicker: Boolean = false
+    val showSharedPicker: Boolean = false,
+    val telegramAuthWaiting: Boolean = false
 )
 
 class SyncViewModel(context: Context): ViewModel() {
@@ -242,6 +245,92 @@ class SyncViewModel(context: Context): ViewModel() {
         }
     }
 
+    private var tgAuthJob: Job? = null
+    var activeTgAuthCode: String? = null
+
+    fun startTelegramAuth(context: Context) {
+        val code = "auth_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        activeTgAuthCode = code
+        mutable.update { it.copy(telegramAuthWaiting = true, message = "") }
+
+        val botUrl = "https://t.me/my_logbook_app_bot?start=$code"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+
+        tgAuthJob?.cancel()
+        tgAuthJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cl = client(false)
+                cl.createTelegramAuthSession(code)
+
+                var attempts = 0
+                while (isActive && attempts < 80) { // ~2 minutes
+                    delay(1500)
+                    attempts++
+                    val confirmed = cl.checkTelegramAuthSession(code)
+                    if (confirmed != null && confirmed.status == "confirmed" && !confirmed.authEmail.isNullOrBlank()) {
+                        cl.signIn(confirmed.authEmail, confirmed.authPassword ?: "", false)
+                        runCatching { cl.deleteTelegramAuthSession(code) }
+                        refreshLastSuccess()
+                        val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
+                                          else confirmed.firstName ?: "Telegram"
+                        mutable.update {
+                            it.copy(
+                                telegramAuthWaiting = false,
+                                email = auth.read()?.email.orEmpty(),
+                                message = "Вход через Telegram выполнен: $displayName",
+                                status = SyncStatus.SUCCESS
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                mutable.update {
+                    it.copy(
+                        telegramAuthWaiting = false,
+                        message = "Время ожидания входа через Telegram истекло. Повторите попытку."
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                mutable.update {
+                    it.copy(
+                        telegramAuthWaiting = false,
+                        message = e.message ?: "Ошибка авторизации через Telegram"
+                    )
+                }
+            }
+        }
+    }
+
+    fun openTelegramAgain(context: Context) {
+        val code = activeTgAuthCode ?: return
+        val botUrl = "https://t.me/my_logbook_app_bot?start=$code"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+    }
+
+    fun cancelTelegramAuth() {
+        tgAuthJob?.cancel()
+        tgAuthJob = null
+        val code = activeTgAuthCode
+        activeTgAuthCode = null
+        mutable.update { it.copy(telegramAuthWaiting = false) }
+        if (code != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { client(false).deleteTelegramAuthSession(code) }
+            }
+        }
+    }
+
     private fun operation(block: suspend () -> Unit) {
         if(mutable.value.busy) return
         mutable.update { it.copy(busy=true,status=SyncStatus.SYNCING,message="") }
@@ -317,6 +406,29 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                 Button(onClick=vm::sync,enabled=enabled && !state.busy) { Text(tr(R.string.msg_synchronize_over_wi_fi_56751d4)) }
             }
         } else if(state.email.isBlank()) {
+            Button(
+                onClick = { vm.startTelegramAuth(context) },
+                enabled = enabled && !state.busy && !state.telegramAuthWaiting,
+                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF2AABEE)),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Icon(Icons.Default.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text("Войти через Telegram", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleSmall)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f))
+                Text(
+                    "  или через Email  ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f))
+            }
             OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true,enabled=enabled && !state.busy,
                 keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Email),modifier=Modifier.fillMaxWidth().bringIntoViewOnFocus())
             OutlinedTextField(password,{password=it},label={Text(tr(R.string.msg_password_14f7c63))},singleLine=true,enabled=enabled && !state.busy,
@@ -531,6 +643,37 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
             busy = state.busy,
             onDismiss = vm::dismissSharedPicker,
             onConfirm = vm::downloadSharedProfiles
+        )
+    }
+    if (state.telegramAuthWaiting) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        AlertDialog(
+            onDismissRequest = { vm.cancelTelegramAuth() },
+            title = { Text("Вход через Telegram") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF2AABEE))
+                    Text(
+                        "Ожидание подтверждения в боте @my_logbook_app_bot…\n\nНажмите кнопку «Запустить» в Telegram.",
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.openTelegramAgain(context) }) {
+                    Text("Открыть Telegram")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.cancelTelegramAuth() }) {
+                    Text(tr(R.string.msg_cancel_0ec753b))
+                }
+            }
         )
     }
     if (state.downloaded) {

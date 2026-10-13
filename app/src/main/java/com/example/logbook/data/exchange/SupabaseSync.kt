@@ -46,6 +46,13 @@ class SyncHttpError(val status: Int, val serverMessage: String? = null): Excepti
 
 data class SyncSession(val endpoint: String,val user: String,val email: String,val access: String,val refresh: String,val expires: Long)
 data class SharedProfileInfo(val profileId: String,val name: String,val boardNumber: String,val revision: Long,val updatedAt: Long)
+data class TelegramAuthSessionData(
+    val status: String,
+    val authEmail: String?,
+    val authPassword: String?,
+    val firstName: String?,
+    val username: String?
+)
 
 /** Tokens are device-bound and excluded from backup. Passwords are never persisted. */
 class SyncAuth(context: Context) {
@@ -171,6 +178,70 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             val rows=rpc("logbook_shared_profile_pull_v2",JsonObject().apply { add("p_profile_ids",JsonArray().apply { add(id) }) }).getAsJsonArray("profiles")
             require(rows.size()==1) { tr(R.string.msg_some_profiles_are_no_longer_available) }
             rows[0].asJsonObject.get("payload").toString()
+        }
+    }
+
+    fun createTelegramAuthSession(code: String) {
+        val body = JsonObject().apply {
+            addProperty("code", code)
+            addProperty("status", "pending")
+        }
+        val connection = (URL("$endpoint/rest/v1/telegram_auth_sessions").openConnection() as HttpsURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10000
+            readTimeout = 10000
+            doOutput = true
+            setRequestProperty("apikey", publicKey)
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Prefer", "return=minimal")
+        }
+        try {
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            connection.responseCode
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun checkTelegramAuthSession(code: String): TelegramAuthSessionData? {
+        val connection = (URL("$endpoint/rest/v1/telegram_auth_sessions?code=eq.$code&select=status,auth_email,auth_password,first_name,username").openConnection() as HttpsURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10000
+            readTimeout = 10000
+            setRequestProperty("apikey", publicKey)
+        }
+        try {
+            if (connection.responseCode in 200..299) {
+                val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val array = JsonParser.parseString(text).asJsonArray
+                if (array.size() > 0) {
+                    val obj = array[0].asJsonObject
+                    return TelegramAuthSessionData(
+                        status = obj.get("status")?.asString ?: "pending",
+                        authEmail = obj.get("auth_email")?.takeIf { !it.isJsonNull }?.asString,
+                        authPassword = obj.get("auth_password")?.takeIf { !it.isJsonNull }?.asString,
+                        firstName = obj.get("first_name")?.takeIf { !it.isJsonNull }?.asString,
+                        username = obj.get("username")?.takeIf { !it.isJsonNull }?.asString
+                    )
+                }
+            }
+            return null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun deleteTelegramAuthSession(code: String) {
+        val connection = (URL("$endpoint/rest/v1/telegram_auth_sessions?code=eq.$code").openConnection() as HttpsURLConnection).apply {
+            requestMethod = "DELETE"
+            connectTimeout = 10000
+            readTimeout = 10000
+            setRequestProperty("apikey", publicKey)
+        }
+        try {
+            connection.responseCode
+        } finally {
+            connection.disconnect()
         }
     }
 }
