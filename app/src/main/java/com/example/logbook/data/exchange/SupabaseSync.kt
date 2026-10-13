@@ -186,18 +186,28 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             addProperty("code", code)
             addProperty("status", "pending")
         }
+        val bodyBytes = body.toString().toByteArray(Charsets.UTF_8)
         val connection = (URL("$endpoint/rest/v1/telegram_auth_sessions").openConnection() as HttpsURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 10000
             readTimeout = 10000
             doOutput = true
+            setFixedLengthStreamingMode(bodyBytes.size)
             setRequestProperty("apikey", publicKey)
+            setRequestProperty("Authorization", "Bearer $publicKey")
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Prefer", "return=minimal")
         }
         try {
-            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            connection.responseCode
+            connection.outputStream.use { it.write(bodyBytes) }
+            val respCode = connection.responseCode
+            if (respCode == 404) {
+                throw Exception("Таблица telegram_auth_sessions не создана в Supabase. Выполните SQL-скрипт в панели управления.")
+            }
+            if (respCode !in 200..299) {
+                val err = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                throw Exception("Ошибка создания сессии Telegram ($respCode): $err")
+            }
         } finally {
             connection.disconnect()
         }
@@ -209,9 +219,11 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             connectTimeout = 10000
             readTimeout = 10000
             setRequestProperty("apikey", publicKey)
+            setRequestProperty("Authorization", "Bearer $publicKey")
         }
         try {
-            if (connection.responseCode in 200..299) {
+            val respCode = connection.responseCode
+            if (respCode in 200..299) {
                 val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val array = JsonParser.parseString(text).asJsonArray
                 if (array.size() > 0) {
@@ -237,6 +249,7 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             connectTimeout = 10000
             readTimeout = 10000
             setRequestProperty("apikey", publicKey)
+            setRequestProperty("Authorization", "Bearer $publicKey")
         }
         try {
             connection.responseCode
