@@ -144,9 +144,11 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         if (release.url.isBlank()) return
         if (mutableState.value.isDownloading) return
 
-        val cachedApk = File(getApplication<Application>().cacheDir, "LogBook-update.apk")
-        if (cachedApk.exists() && mutableState.value.downloadedFile != null) {
-            installApk(context, cachedApk)
+        val app = getApplication<Application>()
+        val targetDir = app.externalCacheDir ?: app.cacheDir
+        val apkFile = File(targetDir, "LogBook-update.apk")
+        if (apkFile.exists() && apkFile.length() > 5_000_000L && mutableState.value.downloadedFile != null) {
+            installApk(context, apkFile)
             return
         }
 
@@ -184,7 +186,6 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                     }
 
                     val totalBytes = connection.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
-                    val apkFile = File(getApplication<Application>().cacheDir, "LogBook-update.apk")
                     if (apkFile.exists()) apkFile.delete()
 
                     connection.inputStream.use { input ->
@@ -201,13 +202,16 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                                 val now = System.currentTimeMillis()
                                 if (now - lastReport > 100 || (totalBytes > 0 && downloaded == totalBytes)) {
                                     lastReport = now
-                                    val progress = if (totalBytes > 0) (downloaded.toFloat() / totalBytes).coerceIn(0f, 1f) else null
+                                    val progress = if (totalBytes > 0) (downloaded.toFloat() / totalBytes).coerceIn(0f, 1f) else 0f
                                     val mbDown = downloaded / (1024f * 1024f)
                                     val mbTotal = if (totalBytes > 0) totalBytes / (1024f * 1024f) else 0f
+                                    val percent = (progress * 100).toInt()
+                                    val mbDownStr = String.format(java.util.Locale.US, "%.1f", mbDown)
+                                    val mbTotalStr = String.format(java.util.Locale.US, "%.1f", mbTotal)
                                     val detail = if (totalBytes > 0) {
-                                        "${(progress!! * 100).toInt()}% (%.1f / %.1f МБ)".format(mbDown, mbTotal)
+                                        "$percent% ($mbDownStr / $mbTotalStr МБ)"
                                     } else {
-                                        "%.1f МБ".format(mbDown)
+                                        "$mbDownStr МБ"
                                     }
                                     mutableState.value = mutableState.value.copy(
                                         downloadProgress = progress,
@@ -246,33 +250,47 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
     }
 
     fun installApk(context: Context, apkFile: File) {
-        val app = getApplication<Application>()
-        val activity = context.findActivity()
+        try {
+            val app = getApplication<Application>()
+            val activity = context.findActivity()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val canInstall = if (activity != null) activity.packageManager.canRequestPackageInstalls()
-                             else app.packageManager.canRequestPackageInstalls()
-            if (!canInstall) {
-                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                    data = Uri.parse("package:${app.packageName}")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val canInstall = if (activity != null) activity.packageManager.canRequestPackageInstalls()
+                                 else app.packageManager.canRequestPackageInstalls()
+                if (!canInstall) {
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}")).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
+                    } catch (_: Exception) {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                    return
                 }
-                if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
-                return
             }
-        }
 
-        val uri = FileProvider.getUriForFile(
-            app,
-            "${app.packageName}.fileprovider",
-            apkFile
-        )
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val uri = FileProvider.getUriForFile(
+                app,
+                "${app.packageName}.fileprovider",
+                apkFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
+        } catch (e: Exception) {
+            mutableState.value = mutableState.value.copy(
+                downloadError = e.message ?: "Не удалось запустить установку"
+            )
         }
-        if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
     }
 
     companion object {

@@ -63,14 +63,14 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
                 else Text(tr(R.string.msg_download_the_apk_and_install_it_over_the_curre_5af14a4))
             }
             if (state.isDownloading) {
-                if (state.downloadProgress != null) {
-                    LinearProgressIndicator(progress = { state.downloadProgress!! }, modifier = Modifier.fillMaxWidth())
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
+                val progressVal = (state.downloadProgress ?: 0f).coerceIn(0f, 1f)
+                LinearProgressIndicator(progress = { progressVal }, modifier = Modifier.fillMaxWidth())
                 Text(state.downloadDetail, style = MaterialTheme.typography.bodySmall)
             } else if (state.downloadError != null) {
                 Text(state.downloadError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { openLink(state.release?.url ?: AppUpdates.GITHUB_RELEASES_URL) }) {
+                    Text(com.example.logbook.localization.I18n.display("Скачать через браузер"))
+                }
             }
         } },
         confirmButton = {
