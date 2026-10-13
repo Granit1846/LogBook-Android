@@ -426,7 +426,12 @@
     <string name="msg_installed_version_1_s_2_s_5111881">"Installed version %1$s (%2$s)"</string>
     <string name="msg_the_apk_link_has_not_been_published_yet_7f0923a">"The APK link has not been published yet."</string>
     <string name="msg_download_the_apk_and_install_it_over_the_curre_5af14a4">"Download the APK and install it over the current version. Your data will be preserved. Android will ask you to confirm installation."</string>
-    <string name="msg_download_apk_31352fb">"Download APK"</string>
+    <string name="msg_download_apk_31352fb">"Update"</string>
+    <string name="msg_downloading_update_btn">"Downloading…"</string>
+    <string name="msg_install_update">"Install"</string>
+    <string name="msg_downloading_update_prefix">"Downloading update…"</string>
+    <string name="msg_update_ready_to_install">"Update downloaded. Starting installer…"</string>
+    <string name="msg_allow_unknown_sources">"Please allow installation of unknown apps for LogBook in Android settings"</string>
     <string name="msg_retry_9e506ac">"Retry"</string>
     <string name="msg_back_f6dab07">"Back"</string>
     <string name="msg_delete_all_data_for_1_s_6bef2a7">"Delete all data for %1$s"</string>

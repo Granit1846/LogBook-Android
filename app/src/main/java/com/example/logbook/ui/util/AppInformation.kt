@@ -3,6 +3,7 @@ package com.example.logbook.ui.util
 import com.example.logbook.R
 import com.example.logbook.localization.I18n.tr
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -29,6 +30,7 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
     val state by updates.state.collectAsStateWithLifecycle()
     var showInformation by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val activity = context as? Activity
     val scrollHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
     fun openLink(url: String) {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
@@ -55,18 +57,44 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
             Text(tr(R.string.msg_installed_version_1_s_2_s_5111881, updates.version, updates.versionCode))
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(com.example.logbook.localization.I18n.display(state.message))
-            state.release?.takeIf { it.versionCode > updates.versionCode }?.let { release ->
+            state.release?.takeIf { state.isNewer }?.let { release ->
                 if (release.localizedNotes.isNotBlank()) Text(release.localizedNotes)
                 if (release.url.isBlank()) Text(tr(R.string.msg_the_apk_link_has_not_been_published_yet_7f0923a))
                 else Text(tr(R.string.msg_download_the_apk_and_install_it_over_the_curre_5af14a4))
             }
+            if (state.isDownloading) {
+                if (state.downloadProgress != null) {
+                    LinearProgressIndicator(progress = { state.downloadProgress!! }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                Text(state.downloadDetail, style = MaterialTheme.typography.bodySmall)
+            } else if (state.downloadError != null) {
+                Text(state.downloadError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         } },
         confirmButton = {
             val release = state.release
-            if (release != null && release.versionCode > updates.versionCode && release.url.isNotBlank())
-                TextButton(onClick = { openLink(release.url) }) { Text(tr(R.string.msg_download_apk_31352fb)) }
-            else if (!state.busy && release == null) TextButton(onClick = { updates.check() }) { Text(tr(R.string.msg_retry_9e506ac)) }
+            if (release != null && state.isNewer && release.url.isNotBlank()) {
+                val btnText = if (state.downloadedFile != null) tr(R.string.msg_install_update)
+                              else if (state.isDownloading) tr(R.string.msg_downloading_update_btn)
+                              else tr(R.string.msg_download_apk_31352fb)
+                TextButton(
+                    onClick = { if (activity != null) updates.downloadAndInstall(activity) },
+                    enabled = !state.isDownloading
+                ) {
+                    Text(btnText)
+                }
+            } else if (!state.busy && release == null) {
+                TextButton(onClick = { updates.check() }) { Text(tr(R.string.msg_retry_9e506ac)) }
+            }
         },
-        dismissButton = { TextButton(onClick = updates::dismiss) { Text(tr(R.string.msg_close_4ae50d3)) } })
+        dismissButton = {
+            TextButton(onClick = {
+                if (state.isDownloading) updates.cancelDownload()
+                updates.dismiss()
+            }) {
+                Text(tr(R.string.msg_close_4ae50d3))
+            }
+        })
 }
-

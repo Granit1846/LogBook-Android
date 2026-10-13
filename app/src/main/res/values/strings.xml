@@ -426,7 +426,12 @@
     <string name="msg_installed_version_1_s_2_s_5111881">"Установлена версия %1$s (%2$s)"</string>
     <string name="msg_the_apk_link_has_not_been_published_yet_7f0923a">"Ссылка на APK ещё не размещена."</string>
     <string name="msg_download_the_apk_and_install_it_over_the_curre_5af14a4">"Скачайте APK и установите поверх текущей версии. Данные сохранятся. Установку подтвердит Android."</string>
-    <string name="msg_download_apk_31352fb">"Скачать APK"</string>
+    <string name="msg_download_apk_31352fb">"Обновить"</string>
+    <string name="msg_downloading_update_btn">"Загрузка…"</string>
+    <string name="msg_install_update">"Установить"</string>
+    <string name="msg_downloading_update_prefix">"Загрузка обновления…"</string>
+    <string name="msg_update_ready_to_install">"Обновление загружено. Запуск установки…"</string>
+    <string name="msg_allow_unknown_sources">"Разрешите установку приложений для LogBook в настройках Android"</string>
     <string name="msg_retry_9e506ac">"Повторить"</string>
     <string name="msg_back_f6dab07">"Назад"</string>
     <string name="msg_delete_all_data_for_1_s_6bef2a7">"Удалить день %1$s полностью"</string>
