@@ -328,7 +328,7 @@ fun MainScreenContent(
                     if (activeZoomState != null) {
                         ZoomControls(activeZoomState)
                     }
-                    if (selectedTab == NO_TAB_SELECTED || selectedTab in 1..5) {
+                    if (selectedTab == NO_TAB_SELECTED || selectedTab in 0..5 || selectedTab == 7) {
                         IconButton(onClick = { showPrintDialog = true }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Print, contentDescription = tr(R.string.msg_print_pdf_73a93ea), modifier = Modifier.size(20.dp))
                         }
@@ -485,8 +485,17 @@ fun MainScreenContent(
     }
 
     if (showPrintDialog) {
+        val initialType = when (selectedTab) {
+            1 -> "Chast1"
+            2 -> "Vr80"
+            3 -> "Ta14"
+            4 -> "Vk250001"
+            5 -> "Vk250002"
+            7 -> "Journal"
+            else -> null
+        }
         com.example.logbook.printing.FormularPrintDialog(profileId,
-            com.example.logbook.printing.FORMULAR_TYPES.getOrNull(selectedTab - 1),
+            initialType,
             onDismiss = { showPrintDialog = false })
     }
 

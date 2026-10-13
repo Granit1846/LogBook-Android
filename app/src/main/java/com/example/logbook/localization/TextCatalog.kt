@@ -291,7 +291,7 @@ internal val defaultTexts: Map<Int, String> = mapOf(
     R.string.msg_system_afeb194 to "Системная",
     R.string.msg_light_8080010 to "Светлая",
     R.string.msg_dark_bd16b23 to "Тёмная",
-    R.string.msg_nexus_dark_grey_orange_2b3b28e to "Nexus (тёмно-серая + оранжевый)",
+    R.string.msg_nexus_dark_grey_orange_2b3b28e to "Nexus",
     R.string.msg_notifications_ee3c35f to "Уведомления",
     R.string.msg_advanced_d7907f4 to "Дополнительно",
     R.string.msg_autosave_8cc4d11 to "Автосохранение",

@@ -26,8 +26,15 @@ import com.example.logbook.ui.util.ScrollableDatePickerDialog
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-val FORMULAR_TYPES = listOf("Chast1", "Vr80", "Ta14", "Vk250001", "Vk250002")
-private val labels get() = listOf("Часть 1", "ВР-80", "Та-14", "ВК-2500-01", "ВК-2500-02").map(com.example.logbook.localization.I18n::display)
+val FORMULAR_TYPES = listOf("Chast1", "Vr80", "Ta14", "Vk250001", "Vk250002", "Journal")
+private val labels get() = listOf(
+    com.example.logbook.localization.I18n.display("Часть 1"),
+    com.example.logbook.localization.I18n.display("ВР-80"),
+    com.example.logbook.localization.I18n.display("Та-14"),
+    com.example.logbook.localization.I18n.display("ВК-2500-01"),
+    com.example.logbook.localization.I18n.display("ВК-2500-02"),
+    tr(R.string.journal_title)
+)
 
 @Composable
 fun FormularPrintDialog(profileId: Long, initialType: String?, onDismiss: () -> Unit) {

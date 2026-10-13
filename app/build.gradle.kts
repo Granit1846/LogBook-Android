@@ -15,8 +15,8 @@ android {
         applicationId = "com.example.logbook"
         minSdk = 26
         targetSdk = 37
-        versionCode = 22
-        versionName = "1.1.20"
+        versionCode = 23
+        versionName = "1.1.21"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

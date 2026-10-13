@@ -96,6 +96,62 @@ class FormularPrintRepository(private val db: AppDatabase) {
                 Vk250002Cols.WIDTHS.map { it.value }, Vk250002Cols.HEADER_HEIGHT.value,
                 FormularPrintSchemas.vk250002(), rows.filter(options::includes)))
         }
+        if ("Journal" in options.types) {
+            val works = try { com.example.logbook.data.model.MaintenanceJournal.works(profile) } catch (_: Exception) { emptyList() }
+            val workRows = works.map { w ->
+                val kindStr = when (w.kind) {
+                    com.example.logbook.data.model.MaintenanceJournal.PERIODIC -> tr(R.string.journal_periodic)
+                    com.example.logbook.data.model.MaintenanceJournal.HOURS_50 -> tr(R.string.journal_50)
+                    com.example.logbook.data.model.MaintenanceJournal.HOURS_100 -> tr(R.string.journal_100)
+                    com.example.logbook.data.model.MaintenanceJournal.HOURS_300 -> tr(R.string.journal_300)
+                    com.example.logbook.data.model.MaintenanceJournal.REG_12 -> tr(R.string.journal_12)
+                    com.example.logbook.data.model.MaintenanceJournal.REG_24 -> tr(R.string.journal_24)
+                    else -> if (w.kind.isNotBlank()) w.kind else tr(R.string.journal_other)
+                }
+                val counterStr = if (w.counterMinutes > 0) minutesToTime(w.counterMinutes) else ""
+                PrintRow(
+                    date = w.date,
+                    values = listOf(displayDate(w.date), kindStr, counterStr, w.description)
+                )
+            }
+            tables.add(
+                PrintTable(
+                    title = tr(R.string.journal_title) + " / " + tr(R.string.journal_works),
+                    widths = listOf(80f, 150f, 110f, 380f),
+                    headerHeight = 28f,
+                    headers = FormularPrintSchemas.journalWorks(),
+                    rows = workRows.filter(options::includes)
+                )
+            )
+
+            val tasks = try { com.example.logbook.data.model.MaintenanceJournal.tasks(profile) } catch (_: Exception) { emptyList() }
+            val taskRows = tasks.map { t ->
+                val createdDate = java.time.Instant.ofEpochMilli(t.createdAt)
+                    .atZone(java.time.ZoneId.systemDefault())
+                    .toLocalDate()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                val completedStr = if (t.completedAt > 0L) {
+                    val d = java.time.Instant.ofEpochMilli(t.completedAt)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDate()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                    displayDate(d)
+                } else tr(R.string.journal_due_now)
+                PrintRow(
+                    date = createdDate,
+                    values = listOf(displayDate(createdDate), t.description, completedStr, "")
+                )
+            }
+            tables.add(
+                PrintTable(
+                    title = tr(R.string.journal_title) + " / " + tr(R.string.journal_defects),
+                    widths = listOf(80f, 320f, 120f, 200f),
+                    headerHeight = 28f,
+                    headers = FormularPrintSchemas.journalDefects(),
+                    rows = taskRows.filter(options::includes)
+                )
+            )
+        }
         PrintSnapshot(profile.name, assignments["Chast1"] ?: profile.boardNumber, tables)
     }
     private fun row(record: Chast1Entity): PrintRow = PrintRow(record.date, listOf(

@@ -291,7 +291,7 @@ internal val englishTexts: Map<Int, String> = mapOf(
     R.string.msg_system_afeb194 to "System",
     R.string.msg_light_8080010 to "Light",
     R.string.msg_dark_bd16b23 to "Dark",
-    R.string.msg_nexus_dark_grey_orange_2b3b28e to "Nexus (dark grey + orange)",
+    R.string.msg_nexus_dark_grey_orange_2b3b28e to "Nexus",
     R.string.msg_notifications_ee3c35f to "Notifications",
     R.string.msg_advanced_d7907f4 to "Advanced",
     R.string.msg_autosave_8cc4d11 to "Autosave",

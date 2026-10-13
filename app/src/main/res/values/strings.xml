@@ -348,7 +348,7 @@
     <string name="msg_system_afeb194">"Системная"</string>
     <string name="msg_light_8080010">"Светлая"</string>
     <string name="msg_dark_bd16b23">"Тёмная"</string>
-    <string name="msg_nexus_dark_grey_orange_2b3b28e">"Nexus (тёмно-серая + оранжевый)"</string>
+    <string name="msg_nexus_dark_grey_orange_2b3b28e">"Nexus"</string>
     <string name="msg_notifications_ee3c35f">"Уведомления"</string>
     <string name="msg_advanced_d7907f4">"Дополнительно"</string>
     <string name="msg_autosave_8cc4d11">"Автосохранение"</string>

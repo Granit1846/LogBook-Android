@@ -348,7 +348,7 @@
     <string name="msg_system_afeb194">"System"</string>
     <string name="msg_light_8080010">"Light"</string>
     <string name="msg_dark_bd16b23">"Dark"</string>
-    <string name="msg_nexus_dark_grey_orange_2b3b28e">"Nexus (dark grey + orange)"</string>
+    <string name="msg_nexus_dark_grey_orange_2b3b28e">"Nexus"</string>
     <string name="msg_notifications_ee3c35f">"Notifications"</string>
     <string name="msg_advanced_d7907f4">"Advanced"</string>
     <string name="msg_autosave_8cc4d11">"Autosave"</string>

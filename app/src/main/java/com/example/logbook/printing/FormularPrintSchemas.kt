@@ -520,4 +520,18 @@ object FormularPrintSchemas {
         HCellH(Vk250002Cols.XS[19], y4, Vk250002Cols.WIDTHS[19], Vk250002Cols.H_LEVEL4, "", white = true)
         HCellH(Vk250002Cols.XS[20], y4, Vk250002Cols.WIDTHS[20], Vk250002Cols.H_LEVEL4, "", white = true)
     }
+
+    fun journalWorks(): List<PrintHeaderCell> = listOf(
+        PrintHeaderCell(0f, 0f, 80f, 28f, tr(R.string.msg_date_a5b49d2)),
+        PrintHeaderCell(80f, 0f, 150f, 28f, tr(R.string.journal_kind)),
+        PrintHeaderCell(230f, 0f, 110f, 28f, tr(R.string.journal_counter)),
+        PrintHeaderCell(340f, 0f, 380f, 28f, tr(R.string.journal_description))
+    )
+
+    fun journalDefects(): List<PrintHeaderCell> = listOf(
+        PrintHeaderCell(0f, 0f, 80f, 28f, tr(R.string.msg_date_a5b49d2)),
+        PrintHeaderCell(80f, 0f, 320f, 28f, tr(R.string.journal_defects)),
+        PrintHeaderCell(400f, 0f, 120f, 28f, tr(R.string.journal_completed)),
+        PrintHeaderCell(520f, 0f, 200f, 28f, tr(R.string.journal_scheduled_works))
+    )
 }
