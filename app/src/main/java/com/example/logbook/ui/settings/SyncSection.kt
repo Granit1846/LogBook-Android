@@ -45,10 +45,23 @@ enum class SyncStatus {
     ERROR
 }
 
-data class SyncUiState(val busy: Boolean=false,val email: String="",val lastSuccess: Long=0,
-    val message: String="",val conflict: SyncConflict?=null,val downloaded: Boolean=false,
-    val localNetwork: Boolean=false,val pairedPc: String="",val history: List<SyncHistoryEntry> = emptyList(),
-    val status: SyncStatus = SyncStatus.IDLE, val syncSeq: Long = 0L)
+data class SyncUiState(
+    val busy: Boolean = false,
+    val email: String = "",
+    val lastSuccess: Long = 0,
+    val message: String = "",
+    val conflict: SyncConflict? = null,
+    val downloaded: Boolean = false,
+    val localNetwork: Boolean = false,
+    val pairedPc: String = "",
+    val history: List<SyncHistoryEntry> = emptyList(),
+    val status: SyncStatus = SyncStatus.IDLE,
+    val syncSeq: Long = 0L,
+    val sharedSpace: Boolean = false,
+    val sharedCatalog: List<SharedProfileInfo> = emptyList(),
+    val showSharedPicker: Boolean = false
+)
+
 class SyncViewModel(context: Context): ViewModel() {
     private val context=context.applicationContext
     private val db=AppDatabase.getInstance(this.context)
@@ -58,42 +71,120 @@ class SyncViewModel(context: Context): ViewModel() {
     private val mutable=MutableStateFlow(SyncUiState(email=auth.read()?.email.orEmpty()))
     val state=mutable.asStateFlow()
     private var pairing: LanPairing? = null
-    init { viewModelScope.launch(Dispatchers.IO) { val last=currentLastSuccess();val entries=history.read();mutable.update { it.copy(lastSuccess=last,history=entries) } } }
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            val last=currentLastSuccess()
+            val entries=history.read()
+            mutable.update { it.copy(lastSuccess=last,history=entries) }
+        }
+    }
+
     private suspend fun currentLastSuccess(): Long {
         if (mutable.value.localNetwork) return pairing?.let { store.checkpoint("lan:${it.peer}", it.peer).lastSuccess } ?: 0
-        return auth.read()?.let { store.checkpoint(it.endpoint, it.user).lastSuccess } ?: 0
+        val session = auth.read() ?: return 0
+        val account = if (mutable.value.sharedSpace) "shared" else session.user
+        return store.checkpoint(session.endpoint, account).lastSuccess
     }
-    private fun refreshLastSuccess() { viewModelScope.launch(Dispatchers.IO) {
-        val last = currentLastSuccess(); mutable.update { it.copy(lastSuccess = last) }
-    } }
-    private suspend fun client(): SupabaseSync {
+
+    private fun refreshLastSuccess() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val last = currentLastSuccess()
+            mutable.update { it.copy(lastSuccess = last) }
+        }
+    }
+
+    private suspend fun client(shared: Boolean = mutable.value.sharedSpace): SupabaseSync {
         val settings=db.appSettingsDao().get()
-        return SupabaseSync(settings?.supabaseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: SyncDefaults.URL,
-            settings?.supabaseKey?.trim()?.takeIf { it.isNotBlank() } ?: SyncDefaults.KEY,auth)
+        return SupabaseSync(
+            settings?.supabaseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: SyncDefaults.URL,
+            settings?.supabaseKey?.trim()?.takeIf { it.isNotBlank() } ?: SyncDefaults.KEY,
+            auth,
+            sharedSpace = shared
+        )
     }
+
     private suspend fun engine(): SyncEngine {
         if(mutable.value.localNetwork) {
             val pc=pairing ?: error(tr(R.string.msg_scan_the_qr_code_in_the_pc_synchronization_win_af94f21))
             return SyncEngine(store,LanSync(pc),"lan:${pc.peer}",pc.peer)
         }
-        val client=client();val session=auth.read() ?: error(tr(R.string.msg_sign_in_to_your_account_4eb58e1))
+        val client=client(false)
+        val session=auth.read() ?: error(tr(R.string.msg_sign_in_to_your_account_4eb58e1))
         return SyncEngine(store,client,session.endpoint,session.user)
     }
+
     fun signIn(email: String,password: String,register: Boolean) = operation {
         require(email.isNotBlank() && password.isNotBlank()) { tr(R.string.msg_enter_your_email_and_password_3c9c951) }
-        val ready=client().signIn(email,password,register)
+        val ready=client(false).signIn(email,password,register)
         refreshLastSuccess()
         mutable.update { it.copy(email=auth.read()?.email.orEmpty(),message=if(ready) tr(R.string.msg_signed_in_you_can_synchronize_data_now_ee8bbcb) else tr(R.string.msg_confirm_your_email_using_the_message_then_sign_7117ebd)) }
     }
-    fun sync()=operation { exchange { engine().synchronize() } }
-    fun selectLocal(local: Boolean) { if(!mutable.value.busy) { mutable.update { it.copy(localNetwork=local,message="",conflict=null,lastSuccess=0) }; refreshLastSuccess() } }
+
+    fun selectSharedSpace(shared: Boolean) {
+        if (!mutable.value.busy) {
+            mutable.update { it.copy(sharedSpace = shared, message = "") }
+            refreshLastSuccess()
+        }
+    }
+
+    fun dismissSharedPicker() {
+        mutable.update { it.copy(showSharedPicker = false) }
+    }
+
+    fun downloadSharedProfiles(selectedIds: Set<String>) = operation {
+        if (selectedIds.isEmpty()) {
+            mutable.update { it.copy(showSharedPicker = false) }
+            return@operation
+        }
+        val payloads = client(true).pullSharedProfiles(selectedIds)
+        val msg = store.importSharedProfiles(payloads)
+        history.add(SyncHistoryEntry(System.currentTimeMillis(), tr(R.string.msg_shared_space), tr(R.string.msg_received_shared_profiles), msg, ""))
+        refreshLastSuccess()
+        mutable.update { it.copy(message = msg, downloaded = true, showSharedPicker = false, status = SyncStatus.SUCCESS, syncSeq = it.syncSeq + 1) }
+    }
+
+    fun sync() = operation {
+        if (!mutable.value.localNetwork && mutable.value.sharedSpace) {
+            val catalog = client(true).sharedProfileCatalog()
+            if (catalog.isEmpty()) {
+                mutable.update { it.copy(message = tr(R.string.msg_no_shared_profiles), status = SyncStatus.IDLE) }
+                return@operation
+            }
+            mutable.update { it.copy(sharedCatalog = catalog, showSharedPicker = true) }
+            return@operation
+        }
+        exchange { engine().synchronize() }
+        if (!mutable.value.localNetwork) {
+            try {
+                val packets = store.sharedProfilePackets()
+                client(true).publishSharedProfiles(packets)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun selectLocal(local: Boolean) {
+        if(!mutable.value.busy) {
+            mutable.update { it.copy(localNetwork=local,message="",conflict=null,lastSuccess=0) }
+            refreshLastSuccess()
+        }
+    }
+
     fun pair(text: String)=operation {
         pairing=LanPairing.parse(text)
         refreshLastSuccess()
         mutable.update { it.copy(pairedPc=pairing!!.host,message=tr(R.string.msg_pc_paired_tap_synchronize_over_wi_fi_e345dbc)) }
     }
-    fun permissionDenied() { mutable.update { it.copy(message=tr(R.string.msg_to_exchange_data_over_wi_fi_allow_local_networ_d8d2f1d)) } }
-    fun resolve(useLocal: Boolean) { val conflict=mutable.value.conflict ?: return;operation { exchange { engine().resolve(conflict,useLocal) } } }
+
+    fun permissionDenied() {
+        mutable.update { it.copy(message=tr(R.string.msg_to_exchange_data_over_wi_fi_allow_local_networ_d8d2f1d)) }
+    }
+
+    fun resolve(useLocal: Boolean) {
+        val conflict=mutable.value.conflict ?: return
+        operation { exchange { engine().resolve(conflict,useLocal) } }
+    }
+
     private suspend fun exchange(block: suspend () -> SyncResult) {
         val method=if(mutable.value.localNetwork) "Wi-Fi" else tr(R.string.msg_internet_60a6800)
         try {
@@ -111,21 +202,25 @@ class SyncViewModel(context: Context): ViewModel() {
             throw error
         } finally { mutable.update { it.copy(history=history.read()) } }
     }
+
     fun exportHistoryBackup(entry: SyncHistoryEntry, uri: android.net.Uri)=operation {
         require(entry.backup.matches(Regex("before-sync-[0-9]+-[0-9a-f-]+\\.json"))) { tr(R.string.msg_backup_unavailable_bde1f78) }
         val file=java.io.File(context.filesDir,"backups/sync/${entry.backup}")
         file.inputStream().use { input -> checkNotNull(context.contentResolver.openOutputStream(uri,"wt")).use { input.copyTo(it) } }
         mutable.update { it.copy(message=tr(R.string.msg_backup_saved_to_restore_it_select_it_in_the_ba_4f4c18a)) }
     }
+
     private suspend fun show(result: SyncResult) {
         val last = currentLastSuccess()
         val isWarn = result.conflict != null
         val st = if (isWarn) SyncStatus.WARNING else SyncStatus.SUCCESS
         mutable.update { it.copy(message=result.message,conflict=result.conflict,downloaded=result.downloaded,lastSuccess=last,status=st,syncSeq=it.syncSeq+1) }
     }
+
     fun resetStatus() {
         mutable.update { it.copy(status = SyncStatus.IDLE) }
     }
+
     fun dismiss() {
         if(!mutable.value.busy) {
             if(mutable.value.conflict!=null) {
@@ -139,7 +234,14 @@ class SyncViewModel(context: Context): ViewModel() {
             mutable.update { it.copy(conflict=null,downloaded=false) }
         }
     }
-    fun logout() { if(!mutable.value.busy) { auth.clear();mutable.value=SyncUiState(message=tr(R.string.msg_signed_out_8e4bf12),history=mutable.value.history) } }
+
+    fun logout() {
+        if(!mutable.value.busy) {
+            auth.clear()
+            mutable.value=SyncUiState(message=tr(R.string.msg_signed_out_8e4bf12),history=mutable.value.history)
+        }
+    }
+
     private fun operation(block: suspend () -> Unit) {
         if(mutable.value.busy) return
         mutable.update { it.copy(busy=true,status=SyncStatus.SYNCING,message="") }
@@ -154,13 +256,14 @@ class SyncViewModel(context: Context): ViewModel() {
             finally { mutable.update { it.copy(busy=false) } }
         }
     }
+
     class Factory(private val context: Context): ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST") override fun <T: ViewModel> create(modelClass: Class<T>): T = SyncViewModel(context) as T
     }
 }
 
 @Composable
-fun SyncSection(vm: SyncViewModel,enabled: Boolean, collapseInformation: Boolean = false) {
+fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context=androidx.compose.ui.platform.LocalContext.current
     val scanner=androidx.activity.compose.rememberLauncherForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { result ->
@@ -173,9 +276,11 @@ fun SyncSection(vm: SyncViewModel,enabled: Boolean, collapseInformation: Boolean
     val localPermission=androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {
         if(it) scan() else vm.permissionDenied()
     }
-    var email by remember { mutableStateOf("") };var password by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var informationExpanded by rememberSaveable { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
+
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
         if (collapseInformation) {
             Row(
@@ -222,8 +327,33 @@ fun SyncSection(vm: SyncViewModel,enabled: Boolean, collapseInformation: Boolean
             }
         } else {
             Text(tr(R.string.msg_account_1_s_e20a047, state.email))
-            if(state.lastSuccess>0) Text(tr(R.string.msg_last_exchange_fc33be1)+java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",java.util.Locale.getDefault()).format(java.util.Date(state.lastSuccess)))
-            Button(onClick=vm::sync,enabled=enabled && !state.busy) { Text(tr(R.string.msg_synchronize_now_5822fb7)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
+                FilterChip(
+                    selected = !state.sharedSpace,
+                    onClick = { vm.selectSharedSpace(false) },
+                    label = { Text(tr(R.string.msg_personal_space)) },
+                    enabled = enabled && !state.busy
+                )
+                FilterChip(
+                    selected = state.sharedSpace,
+                    onClick = { vm.selectSharedSpace(true) },
+                    label = { Text(tr(R.string.msg_shared_space)) },
+                    enabled = enabled && !state.busy
+                )
+            }
+            if (state.sharedSpace) {
+                Text(
+                    tr(R.string.msg_shared_space_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if(state.lastSuccess>0) {
+                Text(tr(R.string.msg_last_exchange_fc33be1)+java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",java.util.Locale.getDefault()).format(java.util.Date(state.lastSuccess)))
+            }
+            Button(onClick=vm::sync,enabled=enabled && !state.busy) {
+                Text(if (state.sharedSpace) tr(R.string.msg_choose_shared_profiles) else tr(R.string.msg_synchronize_now_5822fb7))
+            }
             TextButton(onClick=vm::logout,enabled=enabled && !state.busy) { Text(tr(R.string.msg_sign_out_026abb1)) }
         }
         if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -328,10 +458,81 @@ fun FlightsSyncDialog(
 }
 
 @Composable
+fun SharedProfilePickerDialog(
+    catalog: List<SharedProfileInfo>,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit
+) {
+    var selected by remember(catalog) { mutableStateOf(catalog.map { it.profileId }.toSet()) }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(tr(R.string.msg_choose_shared_profiles)) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    tr(R.string.msg_only_selected_profiles_will_be_downloaded),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                catalog.forEach { info ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !busy) {
+                                selected = if (info.profileId in selected) selected - info.profileId else selected + info.profileId
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = info.profileId in selected,
+                            onCheckedChange = { isChecked ->
+                                selected = if (isChecked) selected + info.profileId else selected - info.profileId
+                            },
+                            enabled = !busy
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(info.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            if (info.boardNumber.isNotBlank()) {
+                                Text(tr(R.string.msg_board_number_value, info.boardNumber), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selected) },
+                enabled = !busy && selected.isNotEmpty()
+            ) {
+                Text(tr(R.string.msg_download_selected_profiles))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) {
+                Text(tr(R.string.msg_cancel_0ec753b))
+            }
+        }
+    )
+}
+
+@Composable
 fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     BackHandler(state.busy) {}
     state.conflict?.let { SyncConflictDialog(it,state.busy,com.example.logbook.localization.I18n.display(state.message),vm::dismiss,vm::resolve) }
+    if (state.showSharedPicker) {
+        SharedProfilePickerDialog(
+            catalog = state.sharedCatalog,
+            busy = state.busy,
+            onDismiss = vm::dismissSharedPicker,
+            onConfirm = vm::downloadSharedProfiles
+        )
+    }
     if (state.downloaded) {
         if (silent) {
             LaunchedEffect(Unit) {

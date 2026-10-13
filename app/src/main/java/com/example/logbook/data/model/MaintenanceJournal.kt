@@ -12,17 +12,17 @@ import java.util.UUID
 @Serializable
 data class MaintenanceWork(
     val id: String = UUID.randomUUID().toString(),
-    val kind: String,
-    val date: String,
-    val counterMinutes: Int,
-    val description: String,
+    val kind: String = "OTHER",
+    val date: String = "",
+    val counterMinutes: Int = 0,
+    val description: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 
 @Serializable
 data class DefectTask(
     val id: String = UUID.randomUUID().toString(),
-    val description: String,
+    val description: String = "",
     val workId: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val completedAt: Long = 0L
@@ -53,8 +53,91 @@ object MaintenanceJournal {
     val kinds = listOf(PERIODIC, HOURS_50, HOURS_100, HOURS_300, REG_12, REG_24, OTHER)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    fun works(profile: ProfileEntity): List<MaintenanceWork> = json.decodeFromString(profile.maintenanceWorksJson)
-    fun tasks(profile: ProfileEntity): List<DefectTask> = json.decodeFromString(profile.defectTasksJson)
+    fun normalizeWorks(raw: String): String {
+        if (raw.isBlank() || raw == "[]") return "[]"
+        return try {
+            val element = com.google.gson.JsonParser.parseString(raw)
+            if (!element.isJsonArray) return "[]"
+            val arr = element.asJsonArray
+            val normalized = com.google.gson.JsonArray()
+            for (item in arr) {
+                if (!item.isJsonObject) continue
+                val obj = item.asJsonObject
+                val normObj = com.google.gson.JsonObject()
+
+                val id = obj.get("id")?.asString ?: obj.get("Id")?.asString ?: UUID.randomUUID().toString()
+                normObj.addProperty("id", id)
+
+                val kind = obj.get("kind")?.asString ?: obj.get("Kind")?.asString ?: OTHER
+                normObj.addProperty("kind", kind)
+
+                val date = obj.get("date")?.asString ?: obj.get("Date")?.asString ?: ""
+                normObj.addProperty("date", date)
+
+                val counterMinutes = obj.get("counterMinutes")?.asInt ?: obj.get("CounterMinutes")?.asInt ?: 0
+                normObj.addProperty("counterMinutes", counterMinutes)
+
+                val desc = obj.get("description")?.asString ?: obj.get("Description")?.asString ?: ""
+                normObj.addProperty("description", desc)
+
+                val createdAt = obj.get("createdAt")?.asLong ?: obj.get("CreatedAt")?.asLong ?: System.currentTimeMillis()
+                normObj.addProperty("createdAt", createdAt)
+
+                normalized.add(normObj)
+            }
+            normalized.toString()
+        } catch (_: Exception) {
+            "[]"
+        }
+    }
+
+    fun normalizeTasks(raw: String): String {
+        if (raw.isBlank() || raw == "[]") return "[]"
+        return try {
+            val element = com.google.gson.JsonParser.parseString(raw)
+            if (!element.isJsonArray) return "[]"
+            val arr = element.asJsonArray
+            val normalized = com.google.gson.JsonArray()
+            for (item in arr) {
+                if (!item.isJsonObject) continue
+                val obj = item.asJsonObject
+                val normObj = com.google.gson.JsonObject()
+
+                val id = obj.get("id")?.asString ?: obj.get("Id")?.asString ?: UUID.randomUUID().toString()
+                normObj.addProperty("id", id)
+
+                val desc = obj.get("description")?.asString ?: obj.get("Description")?.asString ?: ""
+                normObj.addProperty("description", desc)
+
+                val workId = obj.get("workId")?.asString ?: obj.get("WorkId")?.asString ?: ""
+                normObj.addProperty("workId", workId)
+
+                val createdAt = obj.get("createdAt")?.asLong ?: obj.get("CreatedAt")?.asLong ?: System.currentTimeMillis()
+                normObj.addProperty("createdAt", createdAt)
+
+                val completedAt = obj.get("completedAt")?.asLong ?: obj.get("CompletedAt")?.asLong ?: 0L
+                normObj.addProperty("completedAt", completedAt)
+
+                normalized.add(normObj)
+            }
+            normalized.toString()
+        } catch (_: Exception) {
+            "[]"
+        }
+    }
+
+    fun works(profile: ProfileEntity): List<MaintenanceWork> = try {
+        json.decodeFromString(normalizeWorks(profile.maintenanceWorksJson))
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun tasks(profile: ProfileEntity): List<DefectTask> = try {
+        json.decodeFromString(normalizeTasks(profile.defectTasksJson))
+    } catch (_: Exception) {
+        emptyList()
+    }
+
     fun encodeWorks(value: List<MaintenanceWork>): String = json.encodeToString(value)
     fun encodeTasks(value: List<DefectTask>): String = json.encodeToString(value)
 
@@ -69,7 +152,7 @@ object MaintenanceJournal {
             val last = if (kind in listOf(HOURS_50, HOURS_100, HOURS_300)) {
                 candidates.maxWithOrNull(compareBy<MaintenanceWork> { it.counterMinutes }.thenBy { it.createdAt })
             } else {
-                candidates.maxWithOrNull(compareBy<MaintenanceWork> { LocalDate.parse(it.date) }.thenBy { it.createdAt })
+                candidates.maxWithOrNull(compareBy<MaintenanceWork> { runCatching { LocalDate.parse(it.date) }.getOrNull() ?: LocalDate.MIN }.thenBy { it.createdAt })
             }
             if (last == null) return@map WorkDue(kind, null, null, null, null, DueState.NEEDS_BASELINE)
             if (kind in listOf(HOURS_50, HOURS_100, HOURS_300)) {
@@ -86,7 +169,7 @@ object MaintenanceJournal {
                         counterMinutes.toLong() > upper -> DueState.OVERDUE
                         else -> DueState.DUE })
             } else {
-                val base = LocalDate.parse(last.date)
+                val base = runCatching { LocalDate.parse(last.date) }.getOrNull() ?: today
                 val bounds = when (kind) {
                     PERIODIC -> Triple(base.plusDays(15), base.plusDays(20), base.plusDays(25))
                     REG_12 -> Triple(base.plusMonths(12), base.plusMonths(12), base.plusMonths(13))
@@ -123,10 +206,10 @@ object MaintenanceJournal {
             elapsed = counterMinutes.toLong() - last.counterMinutes
             total = upper * 60
         } else {
-            val start = LocalDate.parse(last.date)
-            val lowerDate = LocalDate.parse(value.lower ?: return null)
-            val nominalDate = LocalDate.parse(value.nominal ?: return null)
-            val upperDate = LocalDate.parse(value.upper ?: return null)
+            val start = runCatching { LocalDate.parse(last.date) }.getOrNull() ?: return null
+            val lowerDate = runCatching { LocalDate.parse(value.lower ?: return null) }.getOrNull() ?: return null
+            val nominalDate = runCatching { LocalDate.parse(value.nominal ?: return null) }.getOrNull() ?: return null
+            val upperDate = runCatching { LocalDate.parse(value.upper ?: return null) }.getOrNull() ?: return null
             lower = ChronoUnit.DAYS.between(start, lowerDate)
             nominal = ChronoUnit.DAYS.between(start, nominalDate)
             upper = ChronoUnit.DAYS.between(start, upperDate)

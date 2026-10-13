@@ -151,9 +151,12 @@ internal object DesktopData {
         val sne = last?.get("colSNE")?.asInt ?: starts["Chast1"]?.get("colSNE")?.asInt ?: 0
         if (history.any { it.date <= 0 }) warnings.add(tr(R.string.msg_some_replacement_history_dates_are_unknown_ins_ce265bd))
         warnings.add(tr(R.string.msg_recorded_operating_time_will_be_transferred_wi_f6bd8a4))
+        val mw = if (source.has("MaintenanceWorks")) com.example.logbook.data.model.MaintenanceJournal.normalizeWorks(source.get("MaintenanceWorks").toString()) else "[]"
+        val dt = if (source.has("DefectTasks")) com.example.logbook.data.model.MaintenanceJournal.normalizeTasks(source.get("DefectTasks").toString()) else "[]"
         return DesktopProfile(identity,ExchangeIds.legacy("profile",identity),source.deepCopy(),
             ProfileEntity(name=name,boardNumber=board,aggregateAssignmentsJson=gson.toJson(assignments),resourcesJson=gson.toJson(resources),
-                oilsJson=gson.toJson(oils),aggregateHistoryJson=gson.toJson(history),fuselageSne=sne),days,starts,rows,warnings)
+                oilsJson=gson.toJson(oils),aggregateHistoryJson=gson.toJson(history),fuselageSne=sne,
+                maintenanceWorksJson=mw,defectTasksJson=dt),days,starts,rows,warnings)
     }
 
     fun archive(source: JsonObject): DesktopArchive {

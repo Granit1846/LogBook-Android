@@ -325,8 +325,10 @@ class SyncStore(private val context: Context, private val db: AppDatabase) {
                 if(has("dayId")) addProperty("dayId",mappings.getValue("days")[get("dayId").asString] ?: error(tr(R.string.msg_day_not_found_517a3eb)))
                 if(has("date")) addProperty("date",RecalcCommonDate.local(get("date").asString))
                 if(table=="profiles") {
-                    if(!has("maintenanceWorksJson")) addProperty("maintenanceWorksJson", "[]")
-                    if(!has("defectTasksJson")) addProperty("defectTasksJson", "[]")
+                    val rawMw = if(has("maintenanceWorksJson")) get("maintenanceWorksJson").asString else "[]"
+                    val rawDt = if(has("defectTasksJson")) get("defectTasksJson").asString else "[]"
+                    addProperty("maintenanceWorksJson", com.example.logbook.data.model.MaintenanceJournal.normalizeWorks(rawMw))
+                    addProperty("defectTasksJson", com.example.logbook.data.model.MaintenanceJournal.normalizeTasks(rawDt))
                     val defaults=Gson().toJsonTree(ProfileEntity()).asJsonObject
                     db.openHelper.readableDatabase.query("SELECT * FROM profiles WHERE id=?",arrayOf(get("id").asLong)).use { c ->
                         val exists=c.moveToFirst()

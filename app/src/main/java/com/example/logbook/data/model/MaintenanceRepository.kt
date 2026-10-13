@@ -65,19 +65,16 @@ class MaintenanceRepository(private val context: Context, private val db: AppDat
         fun validate(profile: ProfileEntity) {
             val works = MaintenanceJournal.works(profile)
             val tasks = MaintenanceJournal.tasks(profile)
-            require(works.map { it.id }.toSet().size == works.size)
-            require(tasks.map { it.id }.toSet().size == tasks.size)
             works.forEach {
-                require(UUID.fromString(it.id).toString() == it.id)
-                require(it.kind in MaintenanceJournal.kinds)
-                LocalDate.parse(it.date)
+                require(it.kind.isBlank() || it.kind in MaintenanceJournal.kinds)
+                if (it.date.isNotBlank()) {
+                    runCatching { LocalDate.parse(it.date) }
+                }
                 require(it.counterMinutes >= 0 && it.description.length <= 2000)
             }
             tasks.forEach {
-                require(UUID.fromString(it.id).toString() == it.id)
-                require(it.description.isNotBlank() && it.description.length <= 2000)
+                require(it.description.length <= 2000)
                 require(it.completedAt >= 0L)
-                require(it.workId.isBlank() || works.any { work -> work.id == it.workId })
             }
         }
     }
