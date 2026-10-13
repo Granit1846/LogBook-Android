@@ -28,6 +28,7 @@ import java.time.LocalDate
 data class UpdateState(
     val busy: Boolean = false,
     val visible: Boolean = false,
+    val downloadDialogVisible: Boolean = false,
     val release: ReleaseManifest? = null,
     val message: String = "",
     val isNewer: Boolean = false,
@@ -55,13 +56,21 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun dismissDownloadDialog() {
+        if (mutableState.value.isDownloading) {
+            cancelDownload()
+        }
+        mutableState.value = mutableState.value.copy(downloadDialogVisible = false)
+    }
+
     fun cancelDownload() {
         downloadJob?.cancel()
         downloadJob = null
         mutableState.value = mutableState.value.copy(
             isDownloading = false,
             downloadProgress = null,
-            downloadDetail = ""
+            downloadDetail = "",
+            downloadDialogVisible = false
         )
     }
 
@@ -139,7 +148,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun downloadAndInstall(context: Context) {
+    fun startDownload(context: Context? = null) {
         val release = mutableState.value.release ?: return
         if (release.url.isBlank()) return
         if (mutableState.value.isDownloading) return
@@ -147,15 +156,14 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         val app = getApplication<Application>()
         val targetDir = app.externalCacheDir ?: app.cacheDir
         val apkFile = File(targetDir, "LogBook-update.apk")
-        if (apkFile.exists() && apkFile.length() > 5_000_000L && mutableState.value.downloadedFile != null) {
-            installApk(context, apkFile)
-            return
-        }
 
         mutableState.value = mutableState.value.copy(
+            visible = false,
+            downloadDialogVisible = true,
             isDownloading = true,
             downloadProgress = 0f,
             downloadDetail = tr(R.string.msg_downloading_update_prefix),
+            downloadedFile = null,
             downloadError = null
         )
 
@@ -231,8 +239,6 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                     downloadedFile = downloadedFile,
                     downloadDetail = tr(R.string.msg_update_ready_to_install)
                 )
-
-                installApk(context, downloadedFile)
             } catch (_: kotlinx.coroutines.CancellationException) {
                 mutableState.value = mutableState.value.copy(
                     isDownloading = false,
@@ -247,6 +253,15 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    fun installDownloadedApk(context: Context) {
+        val file = mutableState.value.downloadedFile ?: return
+        installApk(context, file)
+    }
+
+    fun downloadAndInstall(context: Context) {
+        startDownload(context)
     }
 
     fun installApk(context: Context, apkFile: File) {

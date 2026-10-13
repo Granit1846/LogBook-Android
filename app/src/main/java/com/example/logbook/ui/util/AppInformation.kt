@@ -51,7 +51,7 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
         } },
         confirmButton = { TextButton(onClick = checkUpdates, enabled = !state.busy) { Text(tr(R.string.msg_check_for_updates_fa7bfc5)) } },
         dismissButton = { TextButton(onClick = { showInformation = false }) { Text(tr(R.string.msg_close_4ae50d3)) } })
-    if (state.visible) AlertDialog(onDismissRequest = updates::dismiss,
+    if (state.visible && !state.downloadDialogVisible) AlertDialog(onDismissRequest = updates::dismiss,
         title = { Text(tr(R.string.msg_logbook_updates_139c358)) },
         text = { Column(Modifier.heightIn(max = scrollHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(tr(R.string.msg_installed_version_1_s_2_s_5111881, updates.version, updates.versionCode))
@@ -62,45 +62,82 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
                 if (release.url.isBlank()) Text(tr(R.string.msg_the_apk_link_has_not_been_published_yet_7f0923a))
                 else Text(tr(R.string.msg_download_the_apk_and_install_it_over_the_curre_5af14a4))
             }
-            if (state.isDownloading) {
-                val progressVal = (state.downloadProgress ?: 0f).coerceIn(0f, 1f)
-                LinearProgressIndicator(progress = { progressVal }, modifier = Modifier.fillMaxWidth())
-                Text(state.downloadDetail, style = MaterialTheme.typography.bodySmall)
-            } else if (state.downloadError != null) {
-                Text(state.downloadError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { openLink(state.release?.url ?: AppUpdates.GITHUB_RELEASES_URL) }) {
-                    Text(com.example.logbook.localization.I18n.display("Скачать через браузер"))
-                }
-            }
         } },
         confirmButton = {
             val release = state.release
             if (release != null && state.isNewer && release.url.isNotBlank()) {
-                val btnText = if (state.downloadedFile != null) tr(R.string.msg_install_update)
-                              else if (state.isDownloading) tr(R.string.msg_downloading_update_btn)
-                              else tr(R.string.msg_download_apk_31352fb)
                 Button(
                     onClick = {
                         try {
-                            updates.downloadAndInstall(context)
+                            updates.startDownload(context)
                         } catch (_: Exception) {
                             openLink(release.url)
                         }
-                    },
-                    enabled = !state.isDownloading
+                    }
                 ) {
-                    Text(btnText)
+                    Text(tr(R.string.msg_download_apk_31352fb))
                 }
             } else if (!state.busy && release == null) {
                 TextButton(onClick = { updates.check() }) { Text(tr(R.string.msg_retry_9e506ac)) }
             }
         },
         dismissButton = {
-            TextButton(onClick = {
-                if (state.isDownloading) updates.cancelDownload()
-                updates.dismiss()
-            }) {
+            TextButton(onClick = updates::dismiss) {
                 Text(tr(R.string.msg_close_4ae50d3))
+            }
+        })
+
+    if (state.downloadDialogVisible) AlertDialog(
+        onDismissRequest = {
+            if (!state.isDownloading) updates.dismissDownloadDialog()
+        },
+        title = {
+            Text(
+                if (state.downloadedFile != null) tr(R.string.msg_install_update)
+                else tr(R.string.msg_downloading_update_prefix).removeSuffix("…")
+            )
+        },
+        text = { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (state.isDownloading) {
+                val progressVal = (state.downloadProgress ?: 0f).coerceIn(0f, 1f)
+                LinearProgressIndicator(progress = { progressVal }, modifier = Modifier.fillMaxWidth())
+                Text(state.downloadDetail, style = MaterialTheme.typography.bodyMedium)
+            } else if (state.downloadedFile != null) {
+                LinearProgressIndicator(progress = { 1f }, modifier = Modifier.fillMaxWidth())
+                Text(
+                    com.example.logbook.localization.I18n.display("Обновление успешно загружено. Нажмите «Установить» для продолжения."),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else if (state.downloadError != null) {
+                Text(state.downloadError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { openLink(state.release?.url ?: AppUpdates.GITHUB_RELEASES_URL) }) {
+                    Text(com.example.logbook.localization.I18n.display("Скачать через браузер"))
+                }
+            }
+        } },
+        confirmButton = {
+            if (state.downloadedFile != null) {
+                Button(
+                    onClick = { updates.installDownloadedApk(context) }
+                ) {
+                    Text(tr(R.string.msg_install_update))
+                }
+            } else if (state.downloadError != null) {
+                Button(
+                    onClick = { updates.startDownload(context) }
+                ) {
+                    Text(tr(R.string.msg_retry_9e506ac))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    if (state.isDownloading) updates.cancelDownload()
+                    else updates.dismissDownloadDialog()
+                }
+            ) {
+                Text(tr(R.string.msg_cancel_0ec753b))
             }
         })
 }
