@@ -5,6 +5,8 @@ import com.example.logbook.localization.I18n.tr
 
 import android.app.Activity
 import android.app.Application
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -137,14 +139,14 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun downloadAndInstall(activity: Activity) {
+    fun downloadAndInstall(context: Context) {
         val release = mutableState.value.release ?: return
         if (release.url.isBlank()) return
         if (mutableState.value.isDownloading) return
 
         val cachedApk = File(getApplication<Application>().cacheDir, "LogBook-update.apk")
         if (cachedApk.exists() && mutableState.value.downloadedFile != null) {
-            installApk(activity, cachedApk)
+            installApk(context, cachedApk)
             return
         }
 
@@ -226,7 +228,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                     downloadDetail = tr(R.string.msg_update_ready_to_install)
                 )
 
-                installApk(activity, downloadedFile)
+                installApk(context, downloadedFile)
             } catch (_: kotlinx.coroutines.CancellationException) {
                 mutableState.value = mutableState.value.copy(
                     isDownloading = false,
@@ -243,14 +245,19 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun installApk(activity: Activity, apkFile: File) {
+    fun installApk(context: Context, apkFile: File) {
         val app = getApplication<Application>()
+        val activity = context.findActivity()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (!activity.packageManager.canRequestPackageInstalls()) {
+            val canInstall = if (activity != null) activity.packageManager.canRequestPackageInstalls()
+                             else app.packageManager.canRequestPackageInstalls()
+            if (!canInstall) {
                 val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                    data = Uri.parse("package:${activity.packageName}")
+                    data = Uri.parse("package:${app.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                activity.startActivity(intent)
+                if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
                 return
             }
         }
@@ -265,7 +272,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        activity.startActivity(intent)
+        if (activity != null) activity.startActivity(intent) else app.startActivity(intent)
     }
 
     companion object {
@@ -273,4 +280,10 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
         const val MANIFEST_URL = "https://zjagjauwmpuzcwzidhkn.supabase.co/storage/v1/object/public/updates/android/version.json"
         const val WEBSITE = "https://logbook-landing-page-cbo2.bolt.host/"
     }
+}
+
+tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

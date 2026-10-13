@@ -79,8 +79,14 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
                 val btnText = if (state.downloadedFile != null) tr(R.string.msg_install_update)
                               else if (state.isDownloading) tr(R.string.msg_downloading_update_btn)
                               else tr(R.string.msg_download_apk_31352fb)
-                TextButton(
-                    onClick = { if (activity != null) updates.downloadAndInstall(activity) },
+                Button(
+                    onClick = {
+                        try {
+                            updates.downloadAndInstall(context)
+                        } catch (_: Exception) {
+                            openLink(release.url)
+                        }
+                    },
                     enabled = !state.isDownloading
                 ) {
                     Text(btnText)
