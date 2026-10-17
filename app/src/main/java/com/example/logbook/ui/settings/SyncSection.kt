@@ -634,81 +634,84 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                 }
                 TextButton(onClick=vm::logout,enabled=enabled && !state.busy) { Text(tr(R.string.msg_sign_out_026abb1)) }
             }
-            if (state.hasTelegram || state.hasMax || !state.linkedEmail.isNullOrBlank()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    if (state.hasTelegram) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Text(
-                                "✅ Telegram",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+            val allLinked = state.hasTelegram && state.hasMax && !state.linkedEmail.isNullOrBlank()
+            if (!allLinked) {
+                if (state.hasTelegram || state.hasMax || !state.linkedEmail.isNullOrBlank()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        if (state.hasTelegram) {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "✅ Telegram",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
-                    }
-                    if (state.hasMax) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Text(
-                                "✅ MAX",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                        if (state.hasMax) {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "✅ MAX",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
-                    }
-                    if (!state.linkedEmail.isNullOrBlank()) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Text(
-                                "✅ Email: ${state.linkedEmail}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-            }
-            if (!(state.hasTelegram && state.hasMax)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
-                    if (!state.hasMax) {
-                        OutlinedButton(
-                            onClick = { vm.startLinkMessenger(context, "max") },
-                            enabled = enabled && !state.busy,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("🔗 Связать с MAX", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    if (!state.hasTelegram) {
-                        OutlinedButton(
-                            onClick = { vm.startLinkMessenger(context, "telegram") },
-                            enabled = enabled && !state.busy,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("🔗 Связать с Telegram", style = MaterialTheme.typography.bodySmall)
+                        if (!state.linkedEmail.isNullOrBlank()) {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "✅ Email: ${state.linkedEmail}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
-            }
-            if (state.linkedEmail.isNullOrBlank() && state.email.startsWith("tg_")) {
-                OutlinedButton(
-                    onClick = { showLinkEmailDialog = true },
-                    enabled = enabled && !state.busy,
-                    modifier = Modifier.padding(top = 2.dp)
-                ) {
-                    Text("📧 Привязать Email к аккаунту", style = MaterialTheme.typography.bodySmall)
+                if (!(state.hasTelegram && state.hasMax)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
+                        if (!state.hasMax) {
+                            OutlinedButton(
+                                onClick = { vm.startLinkMessenger(context, "max") },
+                                enabled = enabled && !state.busy,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("🔗 Связать с MAX", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        if (!state.hasTelegram) {
+                            OutlinedButton(
+                                onClick = { vm.startLinkMessenger(context, "telegram") },
+                                enabled = enabled && !state.busy,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("🔗 Связать с Telegram", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                if (state.linkedEmail.isNullOrBlank()) {
+                    OutlinedButton(
+                        onClick = { showLinkEmailDialog = true },
+                        enabled = enabled && !state.busy,
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        Text("📧 Привязать Email к аккаунту", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }

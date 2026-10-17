@@ -174,6 +174,13 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             Triple(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax, current.linkedEmail)
         }
     }
+    private fun botPassword(telegramId: Long): String {
+        val md5 = java.security.MessageDigest.getInstance("MD5")
+        val digest = md5.digest("salt_logbook_2026_$telegramId".toByteArray(Charsets.UTF_8))
+        val hex = digest.joinToString("") { "%02x".format(it) }
+        return "TgLogBook_$hex"
+    }
+
     fun linkEmail(newEmail: String, newPassword: String) {
         val current = auth.read() ?: error("Пользователь не авторизован")
         val cleanEmail = newEmail.trim().lowercase()
@@ -188,7 +195,6 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             doOutput = true
         }
         val body = JsonObject().apply {
-            addProperty("password", newPassword)
             add("data", JsonObject().apply { addProperty("linked_email", cleanEmail) })
         }
         conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
@@ -229,41 +235,51 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
     fun signIn(email: String,password: String,register: Boolean): Boolean {
         val cleanEmail = email.trim().lowercase()
         if (!register) {
+            // First check if this email is an alias for a bot account (Telegram / MAX)
             try {
-                val response = request("/auth/v1/token?grant_type=password",
-                    JsonObject().apply { addProperty("email", cleanEmail); addProperty("password", password) })
-                if (response.has("access_token") && !response.get("access_token").isJsonNull) {
-                    session(response)
-                    return true
+                val conn = (URL("$endpoint/rest/v1/telegram_auth_sessions?code=eq.email_$cleanEmail&select=telegram_id,auth_email,auth_password").openConnection() as HttpsURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("apikey", publicKey)
+                    setRequestProperty("Authorization", "Bearer $publicKey")
                 }
-            } catch (e: Exception) {
-                try {
-                    val conn = (URL("$endpoint/rest/v1/telegram_auth_sessions?code=eq.email_$cleanEmail&select=auth_email,auth_password").openConnection() as HttpsURLConnection).apply {
-                        requestMethod = "GET"
-                        connectTimeout = 8000
-                        readTimeout = 8000
-                        setRequestProperty("apikey", publicKey)
-                        setRequestProperty("Authorization", "Bearer $publicKey")
-                    }
-                    if (conn.responseCode in 200..299) {
-                        val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                        val arr = JsonParser.parseString(text).asJsonArray
-                        if (arr.size() > 0) {
-                            val row = arr[0].asJsonObject
-                            val realMail = row.get("auth_email")?.asString
-                            val pass = row.get("auth_password")?.asString
-                            if (!realMail.isNullOrBlank() && pass == password) {
-                                val resp2 = request("/auth/v1/token?grant_type=password",
+                if (conn.responseCode in 200..299) {
+                    val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val arr = JsonParser.parseString(text).asJsonArray
+                    if (arr.size() > 0) {
+                        val row = arr[0].asJsonObject
+                        val realMail = row.get("auth_email")?.asString
+                        val expectedPass = row.get("auth_password")?.asString
+                        val tgId = row.get("telegram_id")?.asLong ?: 0L
+                        if (!realMail.isNullOrBlank() && expectedPass == password) {
+                            val botPw = if (tgId > 0) botPassword(tgId) else password
+                            var resp2 = runCatching {
+                                request("/auth/v1/token?grant_type=password",
+                                    JsonObject().apply { addProperty("email", realMail); addProperty("password", botPw) })
+                            }.getOrNull()
+                            if (resp2 == null || !resp2.has("access_token")) {
+                                resp2 = request("/auth/v1/token?grant_type=password",
                                     JsonObject().apply { addProperty("email", realMail); addProperty("password", password) })
-                                if (resp2.has("access_token") && !resp2.get("access_token").isJsonNull) {
-                                    session(resp2)
-                                    return true
-                                }
                             }
+                            if (resp2.has("access_token") && !resp2.get("access_token").isJsonNull) {
+                                session(resp2)
+                                return true
+                            }
+                        } else if (!realMail.isNullOrBlank() && expectedPass != password) {
+                            throw SyncHttpError(400, "Неверный пароль")
                         }
                     }
-                } catch (_: Exception) {}
-                throw e
+                }
+            } catch (e: Exception) {
+                if (e is SyncHttpError) throw e
+            }
+
+            val response = request("/auth/v1/token?grant_type=password",
+                JsonObject().apply { addProperty("email", cleanEmail); addProperty("password", password) })
+            if (response.has("access_token") && !response.get("access_token").isJsonNull) {
+                session(response)
+                return true
             }
             return false
         }
