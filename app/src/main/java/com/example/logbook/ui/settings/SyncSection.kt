@@ -62,7 +62,10 @@ data class SyncUiState(
     val sharedSpace: Boolean = false,
     val sharedCatalog: List<SharedProfileInfo> = emptyList(),
     val showSharedPicker: Boolean = false,
-    val telegramAuthWaiting: Boolean = false
+    val telegramAuthWaiting: Boolean = false,
+    val maxAuthWaiting: Boolean = false,
+    val hasTelegram: Boolean = false,
+    val hasMax: Boolean = false
 )
 
 class SyncViewModel(context: Context): ViewModel() {
@@ -71,7 +74,11 @@ class SyncViewModel(context: Context): ViewModel() {
     private val auth=SyncAuth(this.context)
     private val store=SyncStore(this.context,db)
     private val history=SyncHistory(this.context)
-    private val mutable=MutableStateFlow(SyncUiState(email=auth.read()?.email.orEmpty()))
+    private val mutable=MutableStateFlow(SyncUiState(
+        email=auth.read()?.email.orEmpty(),
+        hasTelegram=auth.read()?.hasTelegram == true,
+        hasMax=auth.read()?.hasMax == true
+    ))
     val state=mutable.asStateFlow()
     private var pairing: LanPairing? = null
 
@@ -79,7 +86,19 @@ class SyncViewModel(context: Context): ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val last=currentLastSuccess()
             val entries=history.read()
-            mutable.update { it.copy(lastSuccess=last,history=entries) }
+            val s = auth.read()
+            val (tg, mx) = if (s != null) {
+                runCatching { client(false).checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax))
+            } else Pair(false, false)
+            mutable.update { it.copy(lastSuccess=last,history=entries,hasTelegram=tg,hasMax=mx) }
+        }
+    }
+
+    fun refreshLinkedStatus() {
+        val s = auth.read() ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val (tg, mx) = runCatching { client(false).checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax))
+            mutable.update { it.copy(hasTelegram=tg,hasMax=mx) }
         }
     }
 
@@ -121,7 +140,9 @@ class SyncViewModel(context: Context): ViewModel() {
         require(email.isNotBlank() && password.isNotBlank()) { tr(R.string.msg_enter_your_email_and_password_3c9c951) }
         val ready=client(false).signIn(email,password,register)
         refreshLastSuccess()
-        mutable.update { it.copy(email=auth.read()?.email.orEmpty(),message=if(ready) tr(R.string.msg_signed_in_you_can_synchronize_data_now_ee8bbcb) else tr(R.string.msg_confirm_your_email_using_the_message_then_sign_7117ebd)) }
+        val s = auth.read()
+        val (tg, mx) = if (s != null) runCatching { client(false).checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax)) else Pair(false, false)
+        mutable.update { it.copy(email=auth.read()?.email.orEmpty(),hasTelegram=tg,hasMax=mx,message=if(ready) tr(R.string.msg_signed_in_you_can_synchronize_data_now_ee8bbcb) else tr(R.string.msg_confirm_your_email_using_the_message_then_sign_7117ebd)) }
     }
 
     fun selectSharedSpace(shared: Boolean) {
@@ -278,10 +299,14 @@ class SyncViewModel(context: Context): ViewModel() {
                         refreshLastSuccess()
                         val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
                                           else confirmed.firstName ?: "Telegram"
+                        val s = auth.read()
+                        val (tg, mx) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax)) else Pair(true, false)
                         mutable.update {
                             it.copy(
                                 telegramAuthWaiting = false,
                                 email = auth.read()?.email.orEmpty(),
+                                hasTelegram = tg,
+                                hasMax = mx,
                                 message = "Вход через Telegram выполнен: $displayName",
                                 status = SyncStatus.SUCCESS
                             )
@@ -331,6 +356,112 @@ class SyncViewModel(context: Context): ViewModel() {
         }
     }
 
+    private var maxAuthJob: Job? = null
+    var activeMaxAuthCode: String? = null
+
+    fun startMaxAuth(context: Context) {
+        val code = "auth_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        activeMaxAuthCode = code
+        mutable.update { it.copy(maxAuthWaiting = true, message = "") }
+
+        val botUrl = "https://max.ru/se14711712_bot?start=$code"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+
+        maxAuthJob?.cancel()
+        maxAuthJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cl = client(false)
+                cl.createTelegramAuthSession(code)
+
+                var attempts = 0
+                while (isActive && attempts < 80) { // ~2 minutes
+                    delay(1500)
+                    attempts++
+                    val confirmed = cl.checkTelegramAuthSession(code)
+                    if (confirmed != null && confirmed.status == "confirmed" && !confirmed.authEmail.isNullOrBlank()) {
+                        cl.signIn(confirmed.authEmail, confirmed.authPassword ?: "", false)
+                        runCatching { cl.deleteTelegramAuthSession(code) }
+                        refreshLastSuccess()
+                        val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
+                                          else confirmed.firstName ?: "MAX"
+                        val s = auth.read()
+                        val (tg, mx) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax)) else Pair(false, true)
+                        mutable.update {
+                            it.copy(
+                                maxAuthWaiting = false,
+                                email = auth.read()?.email.orEmpty(),
+                                hasTelegram = tg,
+                                hasMax = mx,
+                                message = "Вход через MAX выполнен: $displayName",
+                                status = SyncStatus.SUCCESS
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                mutable.update {
+                    it.copy(
+                        maxAuthWaiting = false,
+                        message = "Время ожидания входа через MAX истекло. Повторите попытку."
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                mutable.update {
+                    it.copy(
+                        maxAuthWaiting = false,
+                        message = e.message ?: "Ошибка авторизации через MAX"
+                    )
+                }
+            }
+        }
+    }
+
+    fun openMaxAgain(context: Context) {
+        val code = activeMaxAuthCode ?: return
+        val botUrl = "https://max.ru/se14711712_bot?start=$code"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+    }
+
+    fun cancelMaxAuth() {
+        maxAuthJob?.cancel()
+        maxAuthJob = null
+        val code = activeMaxAuthCode
+        activeMaxAuthCode = null
+        mutable.update { it.copy(maxAuthWaiting = false) }
+        if (code != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { client(false).deleteTelegramAuthSession(code) }
+            }
+        }
+    }
+
+    fun startLinkMessenger(context: Context, target: String) {
+        val currentMail = auth.read()?.email.orEmpty()
+        val pilotIdMatch = Regex("^tg_(\\d+)@telegram\\.logbook$").find(currentMail)
+        val pilotId = pilotIdMatch?.groupValues?.get(1) ?: ""
+        val token = java.util.UUID.randomUUID().toString().replace("-", "").take(8)
+        val param = if (pilotId.isNotBlank()) "link_${pilotId}_$token" else "auth_$token"
+        val url = if (target == "max") "https://max.ru/se14711712_bot?start=$param"
+                  else "https://t.me/my_logbook_app_bot?start=$param"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+    }
+
     private fun operation(block: suspend () -> Unit) {
         if(mutable.value.busy) return
         mutable.update { it.copy(busy=true,status=SyncStatus.SYNCING,message="") }
@@ -355,6 +486,10 @@ class SyncViewModel(context: Context): ViewModel() {
 fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context=androidx.compose.ui.platform.LocalContext.current
+    DisposableEffect(Unit) {
+        vm.refreshLinkedStatus()
+        onDispose {}
+    }
     val scanner=androidx.activity.compose.rememberLauncherForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { result ->
         result.contents?.let(vm::pair)
     }
@@ -407,8 +542,20 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
             }
         } else if(state.email.isBlank()) {
             Button(
+                onClick = { vm.startMaxAuth(context) },
+                enabled = enabled && !state.busy && !state.telegramAuthWaiting && !state.maxAuthWaiting,
+                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF0077FF)),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Icon(Icons.Default.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text("Войти через MAX", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleSmall)
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
                 onClick = { vm.startTelegramAuth(context) },
-                enabled = enabled && !state.busy && !state.telegramAuthWaiting,
+                enabled = enabled && !state.busy && !state.telegramAuthWaiting && !state.maxAuthWaiting,
                 colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF2AABEE)),
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = MaterialTheme.shapes.medium
@@ -463,10 +610,66 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
             if(state.lastSuccess>0) {
                 Text(tr(R.string.msg_last_exchange_fc33be1)+java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",java.util.Locale.getDefault()).format(java.util.Date(state.lastSuccess)))
             }
-            Button(onClick=vm::sync,enabled=enabled && !state.busy) {
-                Text(if (state.sharedSpace) tr(R.string.msg_choose_shared_profiles) else tr(R.string.msg_synchronize_now_5822fb7))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                Button(onClick=vm::sync,enabled=enabled && !state.busy,modifier=Modifier.weight(1f)) {
+                    Text(if (state.sharedSpace) tr(R.string.msg_choose_shared_profiles) else tr(R.string.msg_synchronize_now_5822fb7))
+                }
+                TextButton(onClick=vm::logout,enabled=enabled && !state.busy) { Text(tr(R.string.msg_sign_out_026abb1)) }
             }
-            TextButton(onClick=vm::logout,enabled=enabled && !state.busy) { Text(tr(R.string.msg_sign_out_026abb1)) }
+            if (state.hasTelegram || state.hasMax) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    if (state.hasTelegram) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        ) {
+                            Text(
+                                "✅ Telegram",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    if (state.hasMax) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        ) {
+                            Text(
+                                "✅ MAX",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            if (!(state.hasTelegram && state.hasMax)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
+                    if (!state.hasMax) {
+                        OutlinedButton(
+                            onClick = { vm.startLinkMessenger(context, "max") },
+                            enabled = enabled && !state.busy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🔗 Связать с MAX", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (!state.hasTelegram) {
+                        OutlinedButton(
+                            onClick = { vm.startLinkMessenger(context, "telegram") },
+                            enabled = enabled && !state.busy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🔗 Связать с Telegram", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
         }
         if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(com.example.logbook.localization.I18n.display(state.message).isNotBlank()) Text(com.example.logbook.localization.I18n.display(state.message))
@@ -671,6 +874,37 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
             },
             dismissButton = {
                 TextButton(onClick = { vm.cancelTelegramAuth() }) {
+                    Text(tr(R.string.msg_cancel_0ec753b))
+                }
+            }
+        )
+    }
+    if (state.maxAuthWaiting) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        AlertDialog(
+            onDismissRequest = { vm.cancelMaxAuth() },
+            title = { Text("Вход через MAX") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF0077FF))
+                    Text(
+                        "Ожидание подтверждения в боте @se14711712_bot…\n\nНажмите «Запустить» в мессенджере MAX.",
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.openMaxAgain(context) }) {
+                    Text("Открыть MAX")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.cancelMaxAuth() }) {
                     Text(tr(R.string.msg_cancel_0ec753b))
                 }
             }

@@ -44,7 +44,7 @@ class SyncHttpError(val status: Int, val serverMessage: String? = null): Excepti
     else -> tr(R.string.msg_server_unavailable_http_1_s_retry_synchronizat_1fde0ad, status)
 })
 
-data class SyncSession(val endpoint: String,val user: String,val email: String,val access: String,val refresh: String,val expires: Long)
+data class SyncSession(val endpoint: String,val user: String,val email: String,val access: String,val refresh: String,val expires: Long,val hasTelegram: Boolean = false,val hasMax: Boolean = false)
 data class SharedProfileInfo(val profileId: String,val name: String,val boardNumber: String,val revision: Long,val updatedAt: Long)
 data class TelegramAuthSessionData(
     val status: String,
@@ -124,10 +124,53 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             return JsonParser.parseString(String(bytes,Charsets.UTF_8)).asJsonObject
         } finally { connection.disconnect() }
     }
-    private fun session(response: JsonObject): SyncSession = SyncSession(endpoint,
-        response.getAsJsonObject("user").get("id").asString,response.getAsJsonObject("user").get("email").asString,
-        response.get("access_token").asString,response.get("refresh_token").asString,
-        System.currentTimeMillis()+response.get("expires_in").asLong*1000).also(auth::write)
+    private fun session(response: JsonObject): SyncSession {
+        val user = response.getAsJsonObject("user")
+        val meta = user?.getAsJsonObject("user_metadata")
+        val email = user?.get("email")?.asString ?: ""
+        val hasTg = email.startsWith("tg_") || meta?.has("telegram_id") == true || meta?.get("tg_linked")?.asBoolean == true
+        val hasMax = meta?.has("max_id") == true || meta?.get("max_linked")?.asBoolean == true
+        val s = SyncSession(
+            endpoint = endpoint,
+            user = user?.get("id")?.asString ?: "",
+            email = email,
+            access = response.get("access_token").asString,
+            refresh = response.get("refresh_token").asString,
+            expires = System.currentTimeMillis() + response.get("expires_in").asLong * 1000L,
+            hasTelegram = hasTg,
+            hasMax = hasMax
+        )
+        auth.write(s)
+        return s
+    }
+
+    fun checkLinkedStatus(): Pair<Boolean, Boolean> {
+        val current = auth.read() ?: return Pair(false, false)
+        return try {
+            val tok = token()
+            val connection = (URL("$endpoint/auth/v1/user").openConnection() as HttpsURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("apikey", publicKey)
+                setRequestProperty("Authorization", "Bearer $tok")
+            }
+            if (connection.responseCode in 200..299) {
+                val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val obj = JsonParser.parseString(text).asJsonObject
+                val meta = obj.getAsJsonObject("user_metadata")
+                val email = obj.get("email")?.asString ?: current.email
+                val hasTg = email.startsWith("tg_") || meta?.has("telegram_id") == true || meta?.get("tg_linked")?.asBoolean == true
+                val hasMax = meta?.has("max_id") == true || meta?.get("max_linked")?.asBoolean == true
+                auth.write(current.copy(hasTelegram = hasTg, hasMax = hasMax))
+                Pair(hasTg, hasMax)
+            } else {
+                Pair(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax)
+            }
+        } catch (_: Exception) {
+            Pair(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax)
+        }
+    }
     fun signIn(email: String,password: String,register: Boolean): Boolean {
         val response=request(if(register) "/auth/v1/signup" else "/auth/v1/token?grant_type=password",
             JsonObject().apply { addProperty("email",email.trim());addProperty("password",password) })
