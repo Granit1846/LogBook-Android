@@ -65,7 +65,8 @@ data class SyncUiState(
     val telegramAuthWaiting: Boolean = false,
     val maxAuthWaiting: Boolean = false,
     val hasTelegram: Boolean = false,
-    val hasMax: Boolean = false
+    val hasMax: Boolean = false,
+    val linkedEmail: String? = null
 )
 
 class SyncViewModel(context: Context): ViewModel() {
@@ -77,7 +78,8 @@ class SyncViewModel(context: Context): ViewModel() {
     private val mutable=MutableStateFlow(SyncUiState(
         email=auth.read()?.email.orEmpty(),
         hasTelegram=auth.read()?.hasTelegram == true,
-        hasMax=auth.read()?.hasMax == true
+        hasMax=auth.read()?.hasMax == true,
+        linkedEmail=auth.read()?.linkedEmail
     ))
     val state=mutable.asStateFlow()
     private var pairing: LanPairing? = null
@@ -87,18 +89,18 @@ class SyncViewModel(context: Context): ViewModel() {
             val last=currentLastSuccess()
             val entries=history.read()
             val s = auth.read()
-            val (tg, mx) = if (s != null) {
-                runCatching { client(false).checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax))
-            } else Pair(false, false)
-            mutable.update { it.copy(lastSuccess=last,history=entries,hasTelegram=tg,hasMax=mx) }
+            val (tg, mx, mail) = if (s != null) {
+                runCatching { client(false).checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail))
+            } else Triple(false, false, null)
+            mutable.update { it.copy(lastSuccess=last,history=entries,hasTelegram=tg,hasMax=mx,linkedEmail=mail) }
         }
     }
 
     fun refreshLinkedStatus() {
         val s = auth.read() ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val (tg, mx) = runCatching { client(false).checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax))
-            mutable.update { it.copy(hasTelegram=tg,hasMax=mx) }
+            val (tg, mx, mail) = runCatching { client(false).checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail))
+            mutable.update { it.copy(hasTelegram=tg,hasMax=mx,linkedEmail=mail) }
         }
     }
 
@@ -141,8 +143,8 @@ class SyncViewModel(context: Context): ViewModel() {
         val ready=client(false).signIn(email,password,register)
         refreshLastSuccess()
         val s = auth.read()
-        val (tg, mx) = if (s != null) runCatching { client(false).checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax)) else Pair(false, false)
-        mutable.update { it.copy(email=auth.read()?.email.orEmpty(),hasTelegram=tg,hasMax=mx,message=if(ready) tr(R.string.msg_signed_in_you_can_synchronize_data_now_ee8bbcb) else tr(R.string.msg_confirm_your_email_using_the_message_then_sign_7117ebd)) }
+        val (tg, mx, mail) = if (s != null) runCatching { client(false).checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail)) else Triple(false, false, null)
+        mutable.update { it.copy(email=auth.read()?.email.orEmpty(),hasTelegram=tg,hasMax=mx,linkedEmail=mail,message=if(ready) tr(R.string.msg_signed_in_you_can_synchronize_data_now_ee8bbcb) else tr(R.string.msg_confirm_your_email_using_the_message_then_sign_7117ebd)) }
     }
 
     fun selectSharedSpace(shared: Boolean) {
@@ -300,13 +302,14 @@ class SyncViewModel(context: Context): ViewModel() {
                         val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
                                           else confirmed.firstName ?: "Telegram"
                         val s = auth.read()
-                        val (tg, mx) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax)) else Pair(true, false)
+                        val (tg, mx, mail) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail)) else Triple(true, false, null)
                         mutable.update {
                             it.copy(
                                 telegramAuthWaiting = false,
                                 email = auth.read()?.email.orEmpty(),
                                 hasTelegram = tg,
                                 hasMax = mx,
+                                linkedEmail = mail,
                                 message = "Вход через Telegram выполнен: $displayName",
                                 status = SyncStatus.SUCCESS
                             )
@@ -390,13 +393,14 @@ class SyncViewModel(context: Context): ViewModel() {
                         val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
                                           else confirmed.firstName ?: "MAX"
                         val s = auth.read()
-                        val (tg, mx) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Pair(s.hasTelegram, s.hasMax)) else Pair(false, true)
+                        val (tg, mx, mail) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail)) else Triple(false, true, null)
                         mutable.update {
                             it.copy(
                                 maxAuthWaiting = false,
                                 email = auth.read()?.email.orEmpty(),
                                 hasTelegram = tg,
                                 hasMax = mx,
+                                linkedEmail = mail,
                                 message = "Вход через MAX выполнен: $displayName",
                                 status = SyncStatus.SUCCESS
                             )
@@ -443,6 +447,19 @@ class SyncViewModel(context: Context): ViewModel() {
             viewModelScope.launch(Dispatchers.IO) {
                 runCatching { client(false).deleteTelegramAuthSession(code) }
             }
+        }
+    }
+
+    fun linkEmail(email: String, pass: String) = operation {
+        require(email.isNotBlank() && pass.isNotBlank()) { tr(R.string.msg_enter_your_email_and_password_3c9c951) }
+        client(false).linkEmail(email, pass)
+        val s = auth.read()
+        mutable.update {
+            it.copy(
+                linkedEmail = email.trim().lowercase(),
+                message = "Email $email успешно привязан к аккаунту",
+                status = SyncStatus.SUCCESS
+            )
         }
     }
 
@@ -504,6 +521,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
     var password by remember { mutableStateOf("") }
     var informationExpanded by rememberSaveable { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
+    var showLinkEmailDialog by remember { mutableStateOf(false) }
 
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
         if (collapseInformation) {
@@ -616,7 +634,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                 }
                 TextButton(onClick=vm::logout,enabled=enabled && !state.busy) { Text(tr(R.string.msg_sign_out_026abb1)) }
             }
-            if (state.hasTelegram || state.hasMax) {
+            if (state.hasTelegram || state.hasMax || !state.linkedEmail.isNullOrBlank()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     if (state.hasTelegram) {
                         Surface(
@@ -640,6 +658,20 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                         ) {
                             Text(
                                 "✅ MAX",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    if (!state.linkedEmail.isNullOrBlank()) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        ) {
+                            Text(
+                                "✅ Email: ${state.linkedEmail}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -670,12 +702,101 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                     }
                 }
             }
+            if (state.linkedEmail.isNullOrBlank() && state.email.startsWith("tg_")) {
+                OutlinedButton(
+                    onClick = { showLinkEmailDialog = true },
+                    enabled = enabled && !state.busy,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Text("📧 Привязать Email к аккаунту", style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
         if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(com.example.logbook.localization.I18n.display(state.message).isNotBlank()) Text(com.example.logbook.localization.I18n.display(state.message))
         OutlinedButton(onClick={showHistory=true},enabled=enabled && !state.busy) { Text(tr(R.string.msg_synchronization_history_236ecb4)) }
     }
     if(showHistory) SyncHistoryDialog(vm,onDismiss={showHistory=false})
+    if(showLinkEmailDialog) LinkEmailDialog(vm,onDismiss={showLinkEmailDialog=false})
+}
+
+@Composable
+private fun LinkEmailDialog(vm: SyncViewModel, onDismiss: () -> Unit) {
+    var emailInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
+    var passwordConfirm by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Привязка Email к аккаунту") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Укажите Email и пароль, чтобы иметь возможность входить в этот же аккаунт с любого устройства без мессенджеров.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = emailInput,
+                    onValueChange = { emailInput = it; errorText = "" },
+                    label = { Text("Email") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth().bringIntoViewOnFocus()
+                )
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it; errorText = "" },
+                    label = { Text("Пароль (мин. 6 симв.)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth().bringIntoViewOnFocus()
+                )
+                OutlinedTextField(
+                    value = passwordConfirm,
+                    onValueChange = { passwordConfirm = it; errorText = "" },
+                    label = { Text("Подтверждение пароля") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth().bringIntoViewOnFocus()
+                )
+                if (errorText.isNotBlank()) {
+                    Text(errorText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val mail = emailInput.trim()
+                    if (mail.isBlank() || !mail.contains("@") || !mail.contains(".")) {
+                        errorText = "Введите корректный email"
+                        return@Button
+                    }
+                    if (passwordInput.length < 6) {
+                        errorText = "Пароль должен содержать не менее 6 символов"
+                        return@Button
+                    }
+                    if (passwordInput != passwordConfirm) {
+                        errorText = "Пароли не совпадают"
+                        return@Button
+                    }
+                    vm.linkEmail(mail, passwordInput)
+                    onDismiss()
+                }
+            ) {
+                Text("Привязать")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(tr(R.string.msg_cancel_0ec753b))
+            }
+        }
+    )
 }
 
 @Composable

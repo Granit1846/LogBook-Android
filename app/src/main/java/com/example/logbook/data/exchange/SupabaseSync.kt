@@ -44,7 +44,7 @@ class SyncHttpError(val status: Int, val serverMessage: String? = null): Excepti
     else -> tr(R.string.msg_server_unavailable_http_1_s_retry_synchronizat_1fde0ad, status)
 })
 
-data class SyncSession(val endpoint: String,val user: String,val email: String,val access: String,val refresh: String,val expires: Long,val hasTelegram: Boolean = false,val hasMax: Boolean = false)
+data class SyncSession(val endpoint: String,val user: String,val email: String,val access: String,val refresh: String,val expires: Long,val hasTelegram: Boolean = false,val hasMax: Boolean = false,val linkedEmail: String? = null)
 data class SharedProfileInfo(val profileId: String,val name: String,val boardNumber: String,val revision: Long,val updatedAt: Long)
 data class TelegramAuthSessionData(
     val status: String,
@@ -130,6 +130,7 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
         val email = user?.get("email")?.asString ?: ""
         val hasTg = email.startsWith("tg_") || meta?.has("telegram_id") == true || meta?.get("tg_linked")?.asBoolean == true
         val hasMax = meta?.has("max_id") == true || meta?.get("max_linked")?.asBoolean == true
+        val linkedEmail = meta?.get("linked_email")?.asString
         val s = SyncSession(
             endpoint = endpoint,
             user = user?.get("id")?.asString ?: "",
@@ -138,14 +139,15 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             refresh = response.get("refresh_token").asString,
             expires = System.currentTimeMillis() + response.get("expires_in").asLong * 1000L,
             hasTelegram = hasTg,
-            hasMax = hasMax
+            hasMax = hasMax,
+            linkedEmail = linkedEmail
         )
         auth.write(s)
         return s
     }
 
-    fun checkLinkedStatus(): Pair<Boolean, Boolean> {
-        val current = auth.read() ?: return Pair(false, false)
+    fun checkLinkedStatus(): Triple<Boolean, Boolean, String?> {
+        val current = auth.read() ?: return Triple(false, false, null)
         return try {
             val tok = token()
             val connection = (URL("$endpoint/auth/v1/user").openConnection() as HttpsURLConnection).apply {
@@ -162,18 +164,111 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
                 val email = obj.get("email")?.asString ?: current.email
                 val hasTg = email.startsWith("tg_") || meta?.has("telegram_id") == true || meta?.get("tg_linked")?.asBoolean == true
                 val hasMax = meta?.has("max_id") == true || meta?.get("max_linked")?.asBoolean == true
-                auth.write(current.copy(hasTelegram = hasTg, hasMax = hasMax))
-                Pair(hasTg, hasMax)
+                val linkedEmail = meta?.get("linked_email")?.asString ?: current.linkedEmail
+                auth.write(current.copy(hasTelegram = hasTg, hasMax = hasMax, linkedEmail = linkedEmail))
+                Triple(hasTg, hasMax, linkedEmail)
             } else {
-                Pair(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax)
+                Triple(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax, current.linkedEmail)
             }
         } catch (_: Exception) {
-            Pair(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax)
+            Triple(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax, current.linkedEmail)
         }
     }
+    fun linkEmail(newEmail: String, newPassword: String) {
+        val current = auth.read() ?: error("Пользователь не авторизован")
+        val cleanEmail = newEmail.trim().lowercase()
+        val tok = token()
+        val conn = (URL("$endpoint/auth/v1/user").openConnection() as HttpsURLConnection).apply {
+            requestMethod = "PUT"
+            connectTimeout = 10000
+            readTimeout = 10000
+            setRequestProperty("apikey", publicKey)
+            setRequestProperty("Authorization", "Bearer $tok")
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            doOutput = true
+        }
+        val body = JsonObject().apply {
+            addProperty("password", newPassword)
+            add("data", JsonObject().apply { addProperty("linked_email", cleanEmail) })
+        }
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        if (conn.responseCode !in 200..299) {
+            val err = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            throw Exception(err ?: "Ошибка обновления пользователя в Supabase")
+        }
+
+        val pilotMatch = Regex("^tg_(\\d+)@").find(current.email)
+        val pilotId = pilotMatch?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        val conn2 = (URL("$endpoint/rest/v1/telegram_auth_sessions").openConnection() as HttpsURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10000
+            readTimeout = 10000
+            setRequestProperty("apikey", publicKey)
+            setRequestProperty("Authorization", "Bearer $publicKey")
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Prefer", "resolution=merge-duplicates")
+            doOutput = true
+        }
+        val sessionObj = JsonObject().apply {
+            addProperty("code", "email_" + cleanEmail)
+            addProperty("telegram_id", pilotId)
+            addProperty("first_name", cleanEmail)
+            addProperty("username", "")
+            addProperty("auth_email", current.email)
+            addProperty("auth_password", newPassword)
+            addProperty("status", "confirmed")
+        }
+        conn2.outputStream.use { it.write(sessionObj.toString().toByteArray(Charsets.UTF_8)) }
+        if (conn2.responseCode !in 200..299) {
+            val err = conn2.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            throw Exception(err ?: "Ошибка сохранения сессии email в Supabase")
+        }
+
+        auth.write(current.copy(linkedEmail = cleanEmail))
+    }
     fun signIn(email: String,password: String,register: Boolean): Boolean {
-        val response=request(if(register) "/auth/v1/signup" else "/auth/v1/token?grant_type=password",
-            JsonObject().apply { addProperty("email",email.trim());addProperty("password",password) })
+        val cleanEmail = email.trim().lowercase()
+        if (!register) {
+            try {
+                val response = request("/auth/v1/token?grant_type=password",
+                    JsonObject().apply { addProperty("email", cleanEmail); addProperty("password", password) })
+                if (response.has("access_token") && !response.get("access_token").isJsonNull) {
+                    session(response)
+                    return true
+                }
+            } catch (e: Exception) {
+                try {
+                    val conn = (URL("$endpoint/rest/v1/telegram_auth_sessions?code=eq.email_$cleanEmail&select=auth_email,auth_password").openConnection() as HttpsURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        setRequestProperty("apikey", publicKey)
+                        setRequestProperty("Authorization", "Bearer $publicKey")
+                    }
+                    if (conn.responseCode in 200..299) {
+                        val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        val arr = JsonParser.parseString(text).asJsonArray
+                        if (arr.size() > 0) {
+                            val row = arr[0].asJsonObject
+                            val realMail = row.get("auth_email")?.asString
+                            val pass = row.get("auth_password")?.asString
+                            if (!realMail.isNullOrBlank() && pass == password) {
+                                val resp2 = request("/auth/v1/token?grant_type=password",
+                                    JsonObject().apply { addProperty("email", realMail); addProperty("password", password) })
+                                if (resp2.has("access_token") && !resp2.get("access_token").isJsonNull) {
+                                    session(resp2)
+                                    return true
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+                throw e
+            }
+            return false
+        }
+        val response=request("/auth/v1/signup",
+            JsonObject().apply { addProperty("email", cleanEmail); addProperty("password", password) })
         if(!response.has("access_token") || response.get("access_token").isJsonNull) return false
         session(response);return true
     }
