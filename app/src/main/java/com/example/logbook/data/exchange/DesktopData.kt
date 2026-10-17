@@ -32,9 +32,9 @@ internal object DesktopData {
     }.orEmpty()
     fun array(o: JsonObject, key: String): List<JsonObject> = o.get(key)?.takeUnless { it.isJsonNull }?.asJsonArray?.map { it.asJsonObject }.orEmpty()
     fun obj(o: JsonObject, key: String): JsonObject = o.get(key)?.takeUnless { it.isJsonNull }?.asJsonObject ?: JsonObject()
-    private fun emptyNumber(value: String) = value.isBlank() || value in setOf("—", "–", "-")
-    fun number(value: String): Double = if (emptyNumber(value)) 0.0 else BigDecimal(value.replace(',', '.')).toDouble().also { require(it.isFinite()) }
-    fun integer(value: String): Int = if (emptyNumber(value) || value == "0:00") 0 else BigDecimal(value.replace(',', '.')).intValueExact()
+    private fun emptyNumber(value: String) = value.trim().isBlank() || value.trim() in setOf("—", "–", "-")
+    fun number(value: String): Double = if (emptyNumber(value)) 0.0 else BigDecimal(value.trim().replace(',', '.').replace("\\s+".toRegex(), "")).toDouble().also { require(it.isFinite()) }
+    fun integer(value: String): Int = if (emptyNumber(value) || value.trim() == "0:00") 0 else BigDecimal(value.trim().replace(',', '.').replace("\\s+".toRegex(), "")).intValueExact()
     fun minutes(value: String): Int {
         if (emptyNumber(value)) return 0
         val match = Regex("(-?)(\\d+):(\\d{1,2})").matchEntire(value)

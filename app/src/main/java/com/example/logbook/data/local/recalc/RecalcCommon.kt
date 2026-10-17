@@ -60,6 +60,9 @@ internal object RecalcCommon {
         if (value.isNullOrBlank()) return null
         val v = value.trim()
         return try {
+            if (v.contains('-')) {
+                return LocalDate.parse(v)
+            }
             if (v.count { it == '.' } != 2) return null
             val parts = v.split('.')
             if (parts.size != 3) return null
