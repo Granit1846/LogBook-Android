@@ -153,7 +153,8 @@ abstract class AppDatabase : RoomDatabase() {
                             }
                         }
                     })
-                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    // Only databases older than the first kept migration may be recreated; a missing newer migration must fail loudly instead of wiping flights.
+                    .fallbackToDestructiveMigrationFrom(true, *(1..22).toList().toIntArray())
                     .build()
                 INSTANCE = instance
                 instance

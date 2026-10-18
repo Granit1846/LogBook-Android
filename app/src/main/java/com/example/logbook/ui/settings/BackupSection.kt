@@ -91,7 +91,7 @@ fun BackupDialogs(viewModel: BackupViewModel, onRestored: () -> Unit) {
         if (!state.busy) AlertDialog(
             onDismissRequest = viewModel::dismiss,
             title = { Text(tr(R.string.msg_restore_data_716fb7f)) },
-            text = { Text(tr(R.string.msg_backup_from_1_s_eba5fc2, SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(backup.createdAt))) +
+            text = { Text(tr(R.string.msg_backup_from_1_s_eba5fc2, SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.ROOT).format(Date(backup.createdAt))) +
                 tr(R.string.msg_profiles_1_s_days_2_s_7822d5b, backup.profiles, backup.days) +
                 tr(R.string.msg_current_data_for_all_profiles_will_be_replaced_08a8986)) },
             confirmButton = { TextButton(onClick = viewModel::restore) { Text(tr(R.string.msg_restore_29f3b29)) } },

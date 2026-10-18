@@ -367,20 +367,10 @@ class SyncViewModel(context: Context): ViewModel() {
 
     fun startLinkMessenger(context: Context, target: String) {
         val currentMail = auth.read()?.email.orEmpty()
-        val pilotIdMatch = Regex("^tg_(\\d+)@telegram\\.logbook$").find(currentMail)
-        val pilotId = pilotIdMatch?.groupValues?.get(1) ?: ""
         // An email account attaches the bot through a server-registered code; afterwards it opens the bot account.
-        if (pilotId.isBlank()) { if (target == "max") startMaxAuth(context, link = true) else startTelegramAuth(context, link = true); return }
-        val token = java.util.UUID.randomUUID().toString().replace("-", "").take(8)
-        val param = "link_${pilotId}_$token"
-        val url = if (target == "max") "https://max.ru/se14711712_bot?start=$param"
-                  else "https://t.me/my_logbook_app_bot?start=$param"
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        if (!Regex("^tg_\\d+@telegram\\.logbook$").matches(currentMail)) { if (target == "max") startMaxAuth(context, link = true) else startTelegramAuth(context, link = true); return }
+        // Telegram and MAX are joined by a code the MAX bot verifies, and only the MAX bot knows the MAX ID: it starts the exchange.
+        openBot(context, "https://max.ru/se14711712_bot?start=link_tg")
     }
 
     private fun operation(block: suspend () -> Unit) {
@@ -530,7 +520,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                 )
             }
             if(state.lastSuccess>0) {
-                Text(tr(R.string.msg_last_exchange_fc33be1)+java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",java.util.Locale.getDefault()).format(java.util.Date(state.lastSuccess)))
+                Text(tr(R.string.msg_last_exchange_fc33be1)+java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",java.util.Locale.ROOT).format(java.util.Date(state.lastSuccess)))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
                 Button(onClick=vm::sync,enabled=enabled && !state.busy,modifier=Modifier.weight(1f)) {
@@ -725,7 +715,7 @@ private fun SyncHistoryDialog(vm: SyncViewModel,onDismiss: () -> Unit) {
                         items(state.history.size) { index ->
                             val entry=state.history[index]
                             Column(Modifier.padding(vertical=8.dp)) {
-                                Text(java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss",java.util.Locale.getDefault()).format(java.util.Date(entry.time))+" · ${com.example.logbook.localization.I18n.display(entry.method)}")
+                                Text(java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss",java.util.Locale.ROOT).format(java.util.Date(entry.time))+" · ${com.example.logbook.localization.I18n.display(entry.method)}")
                                 Text(com.example.logbook.localization.I18n.display(entry.direction),style=MaterialTheme.typography.titleSmall)
                                 Text(com.example.logbook.localization.I18n.display(entry.result))
                                 if(entry.backup.isNotBlank()) TextButton(onClick={selected=entry;export.launch(entry.backup)},enabled=!state.busy) { Text(tr(R.string.msg_save_backup_123ed53)) }

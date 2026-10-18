@@ -295,7 +295,8 @@ fun SetupFlowDialog(
     onDismiss: () -> Unit
 ) {
     AggregateOperationFeedback(viewModel)
-    var boardNumber by remember { mutableStateOf(viewModel.assignments.value["Chast1"].orEmpty()) }
+    val assignments by viewModel.assignments.collectAsStateWithLifecycle()
+    var boardNumber by remember { mutableStateOf(assignments["Chast1"].orEmpty()) }
     var showConfirm by remember { mutableStateOf(false) }
 
     if (!showConfirm) {
@@ -354,7 +355,7 @@ fun SetupFlowDialog(
     if (showConfirm) {
         ConfirmAggregatesDialog(
             initialBoardNumber = boardNumber,
-            initialAssignments = viewModel.assignments.value,
+            initialAssignments = assignments,
             onConfirm = { map ->
                 viewModel.saveAssignments(map, onSuccess = onDismiss)
             },
@@ -632,7 +633,7 @@ internal fun HistoryDialog(
     history: List<AggregateReplacement>,
     onDismiss: () -> Unit
 ) {
-    val dateFormat = SimpleDateFormat("dd.MM.yy HH:mm", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("dd.MM.yy HH:mm", Locale.ROOT)
 
     val typeOrder = listOf("Vr80", "Ta14", "Vk250001", "Vk250002")
     val typeNames = mapOf(
@@ -833,7 +834,7 @@ private fun HistoryPreviewFilled() {
 private fun HistoryPreviewContent(
     history: List<AggregateReplacement>
 ) {
-    val dateFormat = SimpleDateFormat("dd.MM.yy HH:mm", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("dd.MM.yy HH:mm", Locale.ROOT)
 
     val typeOrder = listOf("Vr80", "Ta14", "Vk250001", "Vk250002")
     val typeNames = mapOf(

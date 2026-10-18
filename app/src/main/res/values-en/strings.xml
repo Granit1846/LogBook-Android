@@ -86,7 +86,7 @@
     <string name="msg_profile_not_found_0e520dc">"Profile not found"</string>
     <string name="msg_date_a5b49d2">"Date"</string>
     <string name="msg_flight_type_224b7b5">"Flight type"</string>
-    <string name="msg_ground_operating_time_including_20_of_flight_t_dc38bce">"Ground operating time including 20%%% of flight time, autumn, h:min"</string>
+    <string name="msg_ground_operating_time_including_20_of_flight_t_dc38bce">"Ground operating time including 20%% of flight time, autumn, h:min"</string>
     <string name="msg_flight_duration_h_min_aad3cea">"Flight duration, h:min"</string>
     <string name="msg_logbook_keeper_s_signature_1ee8168">"Logbook keeper\'s signature"</string>
     <string name="msg_pilot_instructor_d07c5b8">"Pilot (instructor)"</string>
@@ -116,7 +116,7 @@
     <string name="msg_nominal_63e315b">"Nominal"</string>
     <string name="msg_takeoff_4235534">"Takeoff"</string>
     <string name="msg_main_gearbox_flight_operating_time_8e15cbb">"Main gearbox flight operating time"</string>
-    <string name="msg_main_gearbox_engine_driven_time_in_all_modes_i_57599f1">"Main gearbox engine-driven time in all modes, including 20%%% on ground"</string>
+    <string name="msg_main_gearbox_engine_driven_time_in_all_modes_i_57599f1">"Main gearbox engine-driven time in all modes, including 20%% on ground"</string>
     <string name="msg_main_gearbox_turbine_driven_operating_time_4478b34">"Main gearbox turbine-driven operating time"</string>
     <string name="msg_starts_c001fc7">"Starts"</string>
     <string name="msg_operating_time_and_start_counter_readings_freq_e31b879">"Operating time and start counter readings, frequency / starts"</string>
