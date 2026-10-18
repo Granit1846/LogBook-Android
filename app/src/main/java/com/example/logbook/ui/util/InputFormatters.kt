@@ -65,6 +65,21 @@ fun formatDateInput(raw: String): String {
     return sb.toString()
 }
 
+/** Resource dates (oils, aggregates) accept dd.MM.yy or dd.MM.yyyy while typing. */
+fun formatResourceDateInput(raw: String): String {
+    val digits = raw.filter { it.isDigit() }.take(8)
+    val sb = StringBuilder()
+    for ((i, ch) in digits.withIndex()) {
+        sb.append(ch)
+        if ((i == 1 || i == 3) && i < digits.lastIndex) sb.append('.')
+    }
+    return sb.toString()
+}
+
+/** A typed two-digit year becomes 20yy, so new rows look like rows stored with the full year. */
+fun expandShortYear(value: String): String =
+    if (Regex("""\d{2}\.\d{2}\.\d{2}""").matches(value)) value.substring(0, 6) + "20" + value.substring(6) else value
+
 fun parseDateInput(input: String): String {
     val digits = input.filter { it.isDigit() }
     if (digits.length < 6) return ""

@@ -102,7 +102,7 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
         val connection=URL(endpoint+path).openConnection() as HttpsURLConnection
         try {
             connection.requestMethod="POST";connection.instanceFollowRedirects=false
-            connection.connectTimeout=15000;connection.readTimeout=30000;connection.doOutput=true
+            connection.connectTimeout=15000;connection.readTimeout=15000;connection.doOutput=true
             connection.setRequestProperty("apikey",publicKey);connection.setRequestProperty("Content-Type","application/json")
             token?.let { connection.setRequestProperty("Authorization","Bearer $it") }
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
@@ -221,8 +221,22 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             throw SyncHttpError(401, tr(R.string.msg_sign_in_again_ee43ece))
         }
     }
-    private fun rpc(name: String,args: JsonObject): JsonObject = try { request("/rest/v1/rpc/$name",args,token()) }
-        catch(error: SyncHttpError) { if(error.status!=401) throw error;request("/rest/v1/rpc/$name",args,token(true)) }
+    private fun rpc(name: String,args: JsonObject): JsonObject {
+        val current=token()
+        return try { retryOnStall { request("/rest/v1/rpc/$name",args,current) } }
+        catch(error: SyncHttpError) { if(error.status!=401) throw error
+            val fresh=token(true);retryOnStall { request("/rest/v1/rpc/$name",args,fresh) } }
+    }
+
+    // Some networks stall a large transfer now and then while the next attempt passes at once. Sync RPCs are
+    // safe to repeat: pulls only read and a commit with the same change ID returns the first result.
+    // Sign-in requests are not retried, since a reused refresh token would sign the device out.
+    private fun <T> retryOnStall(block: () -> T): T {
+        repeat(2) { attempt ->
+            try { return block() } catch(error: java.io.IOException) { Thread.sleep(1000L * (attempt + 1)) }
+        }
+        return block()
+    }
     override suspend fun pull(): RemoteCheckpoint {
         val response=rpc(if(sharedSpace) "logbook_shared_sync_pull_v1" else "logbook_sync_pull_v1",JsonObject());val payload=response.get("payload")
         return RemoteCheckpoint(response.get("revision").asLong,if(payload==null || payload.isJsonNull) null else payload.toString())

@@ -67,13 +67,15 @@ fun AggregatesOnBoardScreen(
     var showHistory by remember { mutableStateOf(false) }
     if (!showSetupFlow) AggregateOperationFeedback(viewModel)
 
-    AggregatesOnBoardContent(
-        assignments = assignments,
-        onReplace = { replaceType = it },
-        onSetup = { showSetupFlow = true },
-        onHistory = { showHistory = true },
-        onDismiss = onBack
-    )
+    com.example.logbook.ui.util.PullToSyncScreen {
+        AggregatesOnBoardContent(
+            assignments = assignments,
+            onReplace = { replaceType = it },
+            onSetup = { showSetupFlow = true },
+            onHistory = { showHistory = true },
+            onDismiss = onBack
+        )
+    }
 
     if (showSetupFlow) {
         SetupFlowDialog(

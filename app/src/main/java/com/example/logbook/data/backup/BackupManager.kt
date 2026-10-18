@@ -139,7 +139,16 @@ class BackupManager(context: Context, private val database: AppDatabase) {
         try {output.write(bytes);target.finishWrite(output)}
         catch(error: Exception){target.failWrite(output);throw error}
         preserveBeforeChange()
+        pruneSyncBackups(target.baseFile.parentFile)
         name
+    }
+
+    // Each download keeps a full copy; only the newest ones are worth the space. Manual backups live elsewhere.
+    private fun pruneSyncBackups(directory: File?) {
+        directory?.listFiles { file -> file.name.startsWith("before-sync-") && file.name.endsWith(".json") }
+            ?.sortedByDescending { it.name.removePrefix("before-sync-").substringBefore('-').toLongOrNull() ?: 0L }
+            ?.drop(MAX_SYNC_BACKUPS)
+            ?.forEach { it.delete() }
     }
 
     private suspend fun snapshot(): ByteArray {
@@ -263,6 +272,7 @@ class BackupManager(context: Context, private val database: AppDatabase) {
 
     companion object {
         private const val MAX_BYTES = 64 * 1024 * 1024
+        private const val MAX_SYNC_BACKUPS = 5
         // Parent tables precede their children; Room's internal metadata is never imported.
         private val TABLES = listOf("profiles", "app_settings", "days", "launches", "snk_values",
             "chast1_start", "chast1_records", "vr80_start", "vr80_records", "ta14_start", "ta14_records",

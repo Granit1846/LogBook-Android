@@ -236,6 +236,7 @@ class SyncViewModel(context: Context): ViewModel() {
     fun exportHistoryBackup(entry: SyncHistoryEntry, uri: android.net.Uri)=operation {
         require(entry.backup.matches(Regex("before-sync-[0-9]+-[0-9a-f-]+\\.json"))) { tr(R.string.msg_backup_unavailable_bde1f78) }
         val file=java.io.File(context.filesDir,"backups/sync/${entry.backup}")
+        require(file.exists()) { tr(R.string.msg_backup_unavailable_bde1f78) }
         file.inputStream().use { input -> checkNotNull(context.contentResolver.openOutputStream(uri,"wt")).use { input.copyTo(it) } }
         mutable.update { it.copy(message=tr(R.string.msg_backup_saved_to_restore_it_select_it_in_the_ba_4f4c18a)) }
     }
@@ -707,6 +708,7 @@ private fun LinkEmailDialog(vm: SyncViewModel, onDismiss: () -> Unit) {
 @Composable
 private fun SyncHistoryDialog(vm: SyncViewModel,onDismiss: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<SyncHistoryEntry?>(null) }
     val export=androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) {
         uri -> if(uri!=null) selected?.let { vm.exportHistoryBackup(it,uri) }
@@ -724,7 +726,8 @@ private fun SyncHistoryDialog(vm: SyncViewModel,onDismiss: () -> Unit) {
                                 Text(java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss",java.util.Locale.ROOT).format(java.util.Date(entry.time))+" · ${com.example.logbook.localization.I18n.display(entry.method)}")
                                 Text(com.example.logbook.localization.I18n.display(entry.direction),style=MaterialTheme.typography.titleSmall)
                                 Text(com.example.logbook.localization.I18n.display(entry.result))
-                                if(entry.backup.isNotBlank()) TextButton(onClick={selected=entry;export.launch(entry.backup)},enabled=!state.busy) { Text(tr(R.string.msg_save_backup_123ed53)) }
+                                // Only the newest automatic copies are kept; older entries lose their button.
+                                if(entry.backup.isNotBlank() && java.io.File(context.filesDir,"backups/sync/${entry.backup}").exists()) TextButton(onClick={selected=entry;export.launch(entry.backup)},enabled=!state.busy) { Text(tr(R.string.msg_save_backup_123ed53)) }
                             }
                             HorizontalDivider()
                         }

@@ -135,7 +135,7 @@ fun OilRow(
                 width = wByYears
             )
         } else {
-            OilReadonlyField(item.byYears, wByYears)
+            OilReadonlyField(com.example.logbook.ui.util.expandShortYear(item.byYears), wByYears)
         }
 
         // Остаток чч:мм

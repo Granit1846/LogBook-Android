@@ -26,7 +26,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.logbook.ui.util.formatDateInput
+import com.example.logbook.ui.util.expandShortYear
+import androidx.compose.ui.focus.onFocusChanged
+import com.example.logbook.ui.util.formatResourceDateInput
 import com.example.logbook.ui.util.formatTimeInput
 import com.example.logbook.ui.util.minutesToTime
 import com.example.logbook.ui.util.parseTimeInput
@@ -100,14 +102,16 @@ fun OilDateField(
     onValueChange: (String) -> Unit,
     width: Dp
 ) {
-    var tfv by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    val shown = expandShortYear(value)
+    var tfv by remember { mutableStateOf(TextFieldValue(shown, TextRange(shown.length))) }
+    var focused by remember { mutableStateOf(false) }
     LaunchedEffect(value) {
-        if (value != tfv.text) tfv = TextFieldValue(value, TextRange(value.length))
+        if (value != tfv.text && shown != tfv.text) tfv = TextFieldValue(shown, TextRange(shown.length))
     }
     BasicTextField(
         value = tfv,
         onValueChange = { newValue ->
-            val formatted = formatDateInput(newValue.text)
+            val formatted = formatResourceDateInput(newValue.text)
             tfv = TextFieldValue(formatted, TextRange(formatted.length))
             onValueChange(formatted)
         },
@@ -123,6 +127,14 @@ fun OilDateField(
             .border(0.5.dp, MaterialTheme.colorScheme.outline)
             .padding(4.dp)
             .selectAllOnFocus(tfv) { tfv = it }
+            .onFocusChanged {
+                // The year is completed on leaving the field, so a four-digit year can still be typed.
+                if (focused && !it.isFocused) {
+                    val full = expandShortYear(tfv.text)
+                    if (full != tfv.text) { tfv = TextFieldValue(full, TextRange(full.length)); onValueChange(full) }
+                }
+                focused = it.isFocused
+            }
     )
 }
 

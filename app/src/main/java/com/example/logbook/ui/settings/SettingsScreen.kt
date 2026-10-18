@@ -91,7 +91,10 @@ fun SettingsScreen(
                     Text(tr(R.string.msg_loading_b6819e9))
                 }
             } else {
-                SettingsContent(
+                com.example.logbook.ui.util.PullToSyncContainer(
+                    onSync = { syncViewModel.sync() },
+                    enabled = !backupState.busy && !importState.busy && !syncState.busy
+                ) { SettingsContent(
                     settings = settings!!,
                     onThemeChange = { if (!backupState.busy && !importState.busy && !syncState.busy) viewModel.setTheme(it) },
                     onNotificationsChange = { if (!backupState.busy && !importState.busy && !syncState.busy) viewModel.setNotifications(it) },
@@ -102,7 +105,7 @@ fun SettingsScreen(
                     backupContent = { BackupSection(backupViewModel, enabled = !importState.busy && !syncState.busy) },
                     importContent = { DesktopImportSection(importViewModel, !backupState.busy && !syncState.busy) },
                     syncContent = { SyncSection(syncViewModel, !backupState.busy && !importState.busy, collapseInformation = true) }
-                )
+                ) }
             }
         }
     }

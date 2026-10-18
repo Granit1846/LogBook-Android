@@ -140,11 +140,11 @@ fun ProfileListContent(
             }
         }
     ) { innerPadding ->
+        com.example.logbook.ui.util.PullToSyncScreen(Modifier.padding(innerPadding)) {
         if (profiles.isEmpty()) {
+            com.example.logbook.ui.util.PullToSyncStatic {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -152,12 +152,11 @@ fun ProfileListContent(
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
+            }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -170,6 +169,7 @@ fun ProfileListContent(
                     )
                 }
             }
+        }
         }
     }
 

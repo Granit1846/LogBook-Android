@@ -100,6 +100,7 @@ import com.example.logbook.ui.util.LocalInformationActions
 import com.example.logbook.ui.util.CompactTopBar
 import com.example.logbook.ui.util.LocalFormularZoomState
 import com.example.logbook.ui.util.PullToSyncContainer
+import com.example.logbook.ui.util.PullToSyncStatic
 import com.example.logbook.ui.util.ZoomControls
 import com.example.logbook.ui.util.rememberPersistentZoomState
 
@@ -404,7 +405,7 @@ fun MainScreenContent(
                             3 -> Ta14Tab(profileId = profileId)
                             4 -> Vk250001Tab(profileId = profileId)
                             5 -> Vk250002Tab(profileId = profileId)
-                            6 -> ResourcesTab(
+                            6 -> PullToSyncContainer(onSync = { syncViewModel.sync() }) { PullToSyncStatic { ResourcesTab(
                                 profileId = profileId,
                                 onNavigateToAggregates = {
                                     onNavigateToAggregates(profileId)
@@ -415,11 +416,13 @@ fun MainScreenContent(
                                 onNavigateToAggregatesOnBoard = {         // ← НОВОЕ
                                     onNavigateToAggregatesOnBoard(profileId)
                                 }
-                            )
-                            7 -> MaintenanceScreen(
-                                profileId = profileId,
-                                onSync = { syncViewModel.sync() }
-                            )
+                            ) } }
+                            7 -> PullToSyncContainer(onSync = { syncViewModel.sync() }) {
+                                MaintenanceScreen(
+                                    profileId = profileId,
+                                    onSync = { syncViewModel.sync() }
+                                )
+                            }
                         }
                         }
                     }

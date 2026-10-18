@@ -158,7 +158,7 @@ fun AggregateRow(
                 width = wIssue
             )
         } else {
-            AggregateReadonlyFieldText(item.issueDate, wIssue)
+            AggregateReadonlyFieldText(com.example.logbook.ui.util.expandShortYear(item.issueDate), wIssue)
         }
 
         ResourceRemainingField(item.calcRemaining2(today), wRem2, ResourceWarnings.calendar(ResourceWarnings.aggregateExpiry(item), today))

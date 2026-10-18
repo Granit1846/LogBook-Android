@@ -5,6 +5,17 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.logbook.ui.settings.SyncDialogs
+import com.example.logbook.ui.settings.SyncViewModel
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -217,4 +228,33 @@ fun PullToSyncContainer(
             }
         }
     }
+}
+
+/** Lets content that does not scroll by itself (a menu, an empty state) still be pulled down. */
+@Composable
+fun PullToSyncStatic(content: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val height = maxHeight
+        Box(Modifier.verticalScroll(rememberScrollState()).height(height)) { content() }
+    }
+}
+
+/**
+ * Pull-to-sync for screens without their own sync UI: uses the shared sync model, reports the result
+ * in a toast and shows conflict/sign-in dialogs.
+ */
+@Composable
+fun PullToSyncScreen(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val vm: SyncViewModel = viewModel(key = "flights_sync", factory = SyncViewModel.Factory(context))
+    val state by vm.state.collectAsStateWithLifecycle()
+    var shownSeq by remember { mutableLongStateOf(state.syncSeq) }
+    LaunchedEffect(state.syncSeq) {
+        if (state.syncSeq != shownSeq && state.message.isNotBlank() && state.conflict == null) {
+            Toast.makeText(context, I18n.display(state.message), Toast.LENGTH_SHORT).show()
+        }
+        shownSeq = state.syncSeq
+    }
+    PullToSyncContainer(onSync = { vm.sync() }, modifier = modifier, enabled = !state.busy, content = content)
+    SyncDialogs(vm, onDownloaded = {})
 }
