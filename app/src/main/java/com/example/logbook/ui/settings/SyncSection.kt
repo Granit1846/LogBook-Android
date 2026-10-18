@@ -270,184 +270,86 @@ class SyncViewModel(context: Context): ViewModel() {
 
     private var tgAuthJob: Job? = null
     var activeTgAuthCode: String? = null
+    private var maxAuthJob: Job? = null
+    var activeMaxAuthCode: String? = null
 
-    fun startTelegramAuth(context: Context) {
-        val code = "auth_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
-        activeTgAuthCode = code
-        mutable.update { it.copy(telegramAuthWaiting = true, message = "") }
-
-        val botUrl = "https://t.me/my_logbook_app_bot?start=$code"
+    private fun openBot(context: Context, url: String) {
         try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
+            })
         } catch (_: Exception) {}
+    }
 
-        tgAuthJob?.cancel()
-        tgAuthJob = viewModelScope.launch(Dispatchers.IO) {
+    /** Gets a one-time code from the server, opens the bot with it and waits for the bot to confirm. */
+    private fun botAuth(context: Context, botBase: String, name: String, onCode: (String) -> Unit,
+                        waiting: (SyncUiState, Boolean) -> SyncUiState): Job {
+        mutable.update { waiting(it, true).copy(message = "") }
+        return viewModelScope.launch(Dispatchers.IO) {
             try {
                 val cl = client(false)
-                cl.createTelegramAuthSession(code)
-
+                val code = cl.startBotAuth()
+                onCode(code.code)
+                withContext(Dispatchers.Main) { openBot(context, botBase + code.code) }
                 var attempts = 0
                 while (isActive && attempts < 80) { // ~2 minutes
                     delay(1500)
                     attempts++
-                    val confirmed = cl.checkTelegramAuthSession(code)
-                    if (confirmed != null && confirmed.status == "confirmed" && !confirmed.authEmail.isNullOrBlank()) {
-                        cl.signIn(confirmed.authEmail, confirmed.authPassword ?: "", false)
-                        runCatching { cl.deleteTelegramAuthSession(code) }
+                    if (cl.pollBotAuth(code)) {
                         refreshLastSuccess()
-                        val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
-                                          else confirmed.firstName ?: "Telegram"
                         val s = auth.read()
-                        val (tg, mx, mail) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail)) else Triple(true, false, null)
+                        val (tg, mx, mail) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail)) else Triple(false, false, null)
                         mutable.update {
-                            it.copy(
-                                telegramAuthWaiting = false,
+                            waiting(it, false).copy(
                                 email = auth.read()?.email.orEmpty(),
                                 hasTelegram = tg,
                                 hasMax = mx,
                                 linkedEmail = mail,
-                                message = "Вход через Telegram выполнен: $displayName",
+                                message = "Вход через $name выполнен",
                                 status = SyncStatus.SUCCESS
                             )
                         }
                         return@launch
                     }
                 }
-                mutable.update {
-                    it.copy(
-                        telegramAuthWaiting = false,
-                        message = "Время ожидания входа через Telegram истекло. Повторите попытку."
-                    )
-                }
+                mutable.update { waiting(it, false).copy(message = "Время ожидания входа через $name истекло. Повторите попытку.") }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                mutable.update {
-                    it.copy(
-                        telegramAuthWaiting = false,
-                        message = e.message ?: "Ошибка авторизации через Telegram"
-                    )
-                }
+                mutable.update { waiting(it, false).copy(message = e.message ?: "Ошибка авторизации через $name") }
             }
         }
     }
 
+    fun startTelegramAuth(context: Context) {
+        tgAuthJob?.cancel()
+        tgAuthJob = botAuth(context, "https://t.me/my_logbook_app_bot?start=", "Telegram", { activeTgAuthCode = it }) { s, w -> s.copy(telegramAuthWaiting = w) }
+    }
+
     fun openTelegramAgain(context: Context) {
-        val code = activeTgAuthCode ?: return
-        val botUrl = "https://t.me/my_logbook_app_bot?start=$code"
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        activeTgAuthCode?.let { openBot(context, "https://t.me/my_logbook_app_bot?start=$it") }
     }
 
     fun cancelTelegramAuth() {
         tgAuthJob?.cancel()
         tgAuthJob = null
-        val code = activeTgAuthCode
         activeTgAuthCode = null
         mutable.update { it.copy(telegramAuthWaiting = false) }
-        if (code != null) {
-            viewModelScope.launch(Dispatchers.IO) {
-                runCatching { client(false).deleteTelegramAuthSession(code) }
-            }
-        }
     }
 
-    private var maxAuthJob: Job? = null
-    var activeMaxAuthCode: String? = null
-
     fun startMaxAuth(context: Context) {
-        val code = "auth_" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
-        activeMaxAuthCode = code
-        mutable.update { it.copy(maxAuthWaiting = true, message = "") }
-
-        val botUrl = "https://max.ru/se14711712_bot?start=$code"
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
-
         maxAuthJob?.cancel()
-        maxAuthJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val cl = client(false)
-                cl.createTelegramAuthSession(code)
-
-                var attempts = 0
-                while (isActive && attempts < 80) { // ~2 minutes
-                    delay(1500)
-                    attempts++
-                    val confirmed = cl.checkTelegramAuthSession(code)
-                    if (confirmed != null && confirmed.status == "confirmed" && !confirmed.authEmail.isNullOrBlank()) {
-                        cl.signIn(confirmed.authEmail, confirmed.authPassword ?: "", false)
-                        runCatching { cl.deleteTelegramAuthSession(code) }
-                        refreshLastSuccess()
-                        val displayName = if (!confirmed.username.isNullOrBlank()) "${confirmed.firstName ?: ""} (@${confirmed.username})".trim()
-                                          else confirmed.firstName ?: "MAX"
-                        val s = auth.read()
-                        val (tg, mx, mail) = if (s != null) runCatching { cl.checkLinkedStatus() }.getOrDefault(Triple(s.hasTelegram, s.hasMax, s.linkedEmail)) else Triple(false, true, null)
-                        mutable.update {
-                            it.copy(
-                                maxAuthWaiting = false,
-                                email = auth.read()?.email.orEmpty(),
-                                hasTelegram = tg,
-                                hasMax = mx,
-                                linkedEmail = mail,
-                                message = "Вход через MAX выполнен: $displayName",
-                                status = SyncStatus.SUCCESS
-                            )
-                        }
-                        return@launch
-                    }
-                }
-                mutable.update {
-                    it.copy(
-                        maxAuthWaiting = false,
-                        message = "Время ожидания входа через MAX истекло. Повторите попытку."
-                    )
-                }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                mutable.update {
-                    it.copy(
-                        maxAuthWaiting = false,
-                        message = e.message ?: "Ошибка авторизации через MAX"
-                    )
-                }
-            }
-        }
+        maxAuthJob = botAuth(context, "https://max.ru/se14711712_bot?start=", "MAX", { activeMaxAuthCode = it }) { s, w -> s.copy(maxAuthWaiting = w) }
     }
 
     fun openMaxAgain(context: Context) {
-        val code = activeMaxAuthCode ?: return
-        val botUrl = "https://max.ru/se14711712_bot?start=$code"
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(botUrl)).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {}
+        activeMaxAuthCode?.let { openBot(context, "https://max.ru/se14711712_bot?start=$it") }
     }
 
     fun cancelMaxAuth() {
         maxAuthJob?.cancel()
         maxAuthJob = null
-        val code = activeMaxAuthCode
         activeMaxAuthCode = null
         mutable.update { it.copy(maxAuthWaiting = false) }
-        if (code != null) {
-            viewModelScope.launch(Dispatchers.IO) {
-                runCatching { client(false).deleteTelegramAuthSession(code) }
-            }
-        }
     }
 
     fun linkEmail(email: String, pass: String) = operation {
