@@ -30,8 +30,20 @@ class SyncHttpError(val status: Int, val serverMessage: String? = null): Excepti
         "Пользователь с таким email уже зарегистрирован. Нажмите «Войти»"
     serverMessage?.contains("email_address_invalid", ignoreCase = true) == true ->
         "Некорректный адрес email"
+    serverMessage?.contains("email_taken", ignoreCase = true) == true ->
+        "Этот email уже занят другим аккаунтом"
+    serverMessage?.contains("not_bot_account", ignoreCase = true) == true ->
+        "Привязать email можно только к аккаунту, вошедшему через Telegram или MAX"
+    serverMessage?.contains("not_email_account", ignoreCase = true) == true ->
+        "Этот аккаунт уже вошёл через бота"
+    serverMessage?.contains("not_email_alias", ignoreCase = true) == true ->
+        "Этот email больше не привязан к аккаунту. Войдите через бота и привяжите email заново"
+    serverMessage?.contains("invalid_link_email", ignoreCase = true) == true ->
+        "Проверьте email; пароль должен содержать от 6 до 72 символов"
+    serverMessage?.contains("weak_password", ignoreCase = true) == true ||
     serverMessage?.contains("Password should be at least", ignoreCase = true) == true ->
         "Пароль должен содержать не менее 6 символов"
+    serverMessage?.contains("not_signed_in", ignoreCase = true) == true ||
     serverMessage?.contains("refresh_token_not_found", ignoreCase = true) == true ||
     serverMessage?.contains("Invalid Refresh Token", ignoreCase = true) == true ->
         tr(R.string.msg_sign_in_again_ee43ece)
@@ -125,7 +137,8 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
         val email = user?.get("email")?.asString ?: ""
         val hasTg = email.startsWith("tg_") || meta?.has("telegram_id") == true || meta?.get("tg_linked")?.asBoolean == true
         val hasMax = meta?.has("max_id") == true || meta?.get("max_linked")?.asBoolean == true
-        val linkedEmail = meta?.get("linked_email")?.asString
+        // Only a server-made alias makes the email usable for login; user_metadata alone is editable by the client.
+        val linkedEmail = if (user?.getAsJsonObject("app_metadata")?.has("email_alias_id") == true) meta?.get("linked_email")?.asString else null
         val s = SyncSession(
             endpoint = endpoint,
             user = user?.get("id")?.asString ?: "",
@@ -159,7 +172,7 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
                 val email = obj.get("email")?.asString ?: current.email
                 val hasTg = email.startsWith("tg_") || meta?.has("telegram_id") == true || meta?.get("tg_linked")?.asBoolean == true
                 val hasMax = meta?.has("max_id") == true || meta?.get("max_linked")?.asBoolean == true
-                val linkedEmail = meta?.get("linked_email")?.asString ?: current.linkedEmail
+                val linkedEmail = if (obj.getAsJsonObject("app_metadata")?.has("email_alias_id") == true) meta?.get("linked_email")?.asString else null
                 auth.write(current.copy(hasTelegram = hasTg, hasMax = hasMax, linkedEmail = linkedEmail))
                 Triple(hasTg, hasMax, linkedEmail)
             } else {
@@ -169,114 +182,28 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
             Triple(current.hasTelegram || current.email.startsWith("tg_"), current.hasMax, current.linkedEmail)
         }
     }
-    private fun botPassword(telegramId: Long): String {
-        val md5 = java.security.MessageDigest.getInstance("MD5")
-        val digest = md5.digest("salt_logbook_2026_$telegramId".toByteArray(Charsets.UTF_8))
-        val hex = digest.joinToString("") { "%02x".format(it) }
-        return "TgLogBook_$hex"
-    }
-
+    /** The password goes only to Supabase Auth, which keeps it on a separate email alias of the bot account. */
     fun linkEmail(newEmail: String, newPassword: String) {
-        val current = auth.read() ?: error("Пользователь не авторизован")
         val cleanEmail = newEmail.trim().lowercase()
-        val tok = token()
-        val conn = (URL("$endpoint/auth/v1/user").openConnection() as HttpsURLConnection).apply {
-            requestMethod = "PUT"
-            connectTimeout = 10000
-            readTimeout = 10000
-            setRequestProperty("apikey", publicKey)
-            setRequestProperty("Authorization", "Bearer $tok")
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            doOutput = true
-        }
-        val body = JsonObject().apply {
-            add("data", JsonObject().apply { addProperty("linked_email", cleanEmail) })
-        }
-        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        if (conn.responseCode !in 200..299) {
-            val err = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-            throw Exception(err ?: "Ошибка обновления пользователя в Supabase")
-        }
-
-        val pilotMatch = Regex("^tg_(\\d+)@").find(current.email)
-        val pilotId = pilotMatch?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-        val conn2 = (URL("$endpoint/rest/v1/telegram_auth_sessions").openConnection() as HttpsURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 10000
-            readTimeout = 10000
-            setRequestProperty("apikey", publicKey)
-            setRequestProperty("Authorization", "Bearer $publicKey")
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Prefer", "resolution=merge-duplicates")
-            doOutput = true
-        }
-        val sessionObj = JsonObject().apply {
-            addProperty("code", "email_" + cleanEmail)
-            addProperty("telegram_id", pilotId)
-            addProperty("first_name", cleanEmail)
-            addProperty("username", "")
-            addProperty("auth_email", current.email)
-            addProperty("auth_password", newPassword)
-            addProperty("status", "confirmed")
-        }
-        conn2.outputStream.use { it.write(sessionObj.toString().toByteArray(Charsets.UTF_8)) }
-        if (conn2.responseCode !in 200..299) {
-            val err = conn2.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-            throw Exception(err ?: "Ошибка сохранения сессии email в Supabase")
-        }
-
-        auth.write(current.copy(linkedEmail = cleanEmail))
+        request("/functions/v1/platform-auth", JsonObject().apply {
+            addProperty("action", "link_email"); addProperty("email", cleanEmail); addProperty("password", newPassword)
+        }, token())
+        auth.read()?.let { auth.write(it.copy(linkedEmail = cleanEmail)) }
     }
     fun signIn(email: String,password: String,register: Boolean): Boolean {
         val cleanEmail = email.trim().lowercase()
         if (!register) {
-            // First check if this email is an alias for a bot account (Telegram / MAX)
-            try {
-                val conn = (URL("$endpoint/rest/v1/telegram_auth_sessions?code=eq.email_$cleanEmail&select=telegram_id,auth_email,auth_password").openConnection() as HttpsURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    setRequestProperty("apikey", publicKey)
-                    setRequestProperty("Authorization", "Bearer $publicKey")
-                }
-                if (conn.responseCode in 200..299) {
-                    val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    val arr = JsonParser.parseString(text).asJsonArray
-                    if (arr.size() > 0) {
-                        val row = arr[0].asJsonObject
-                        val realMail = row.get("auth_email")?.asString
-                        val expectedPass = row.get("auth_password")?.asString
-                        val tgId = row.get("telegram_id")?.asLong ?: 0L
-                        if (!realMail.isNullOrBlank() && expectedPass == password) {
-                            val botPw = if (tgId > 0) botPassword(tgId) else password
-                            var resp2 = runCatching {
-                                request("/auth/v1/token?grant_type=password",
-                                    JsonObject().apply { addProperty("email", realMail); addProperty("password", botPw) })
-                            }.getOrNull()
-                            if (resp2 == null || !resp2.has("access_token")) {
-                                resp2 = request("/auth/v1/token?grant_type=password",
-                                    JsonObject().apply { addProperty("email", realMail); addProperty("password", password) })
-                            }
-                            if (resp2.has("access_token") && !resp2.get("access_token").isJsonNull) {
-                                session(resp2)
-                                return true
-                            }
-                        } else if (!realMail.isNullOrBlank() && expectedPass != password) {
-                            throw SyncHttpError(400, "Неверный пароль")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is SyncHttpError) throw e
-            }
-
             val response = request("/auth/v1/token?grant_type=password",
                 JsonObject().apply { addProperty("email", cleanEmail); addProperty("password", password) })
-            if (response.has("access_token") && !response.get("access_token").isJsonNull) {
-                session(response)
-                return true
-            }
-            return false
+            if (!response.has("access_token") || response.get("access_token").isJsonNull) return false
+            val alias = response.getAsJsonObject("user")?.getAsJsonObject("app_metadata")?.has("alias_of") == true
+            if (!alias) { session(response); return true }
+            // Email linked to a Telegram/MAX account: exchange the alias session for that account.
+            val reply = request("/functions/v1/platform-auth", JsonObject().apply { addProperty("action", "alias_session") },
+                response.get("access_token").asString)
+            session(request("/auth/v1/verify", JsonObject().apply {
+                addProperty("token_hash", reply.get("tokenHash").asString); addProperty("type", "email") }))
+            return true
         }
         val response=request("/auth/v1/signup",
             JsonObject().apply { addProperty("email", cleanEmail); addProperty("password", password) })
@@ -330,8 +257,10 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
         }
     }
 
-    fun startBotAuth(): BotAuthCode {
-        val reply = request("/functions/v1/platform-auth", JsonObject().apply { addProperty("action", "start_code") })
+    /** [link]: the signed-in email account becomes the email login of the bot account once the bot confirms. */
+    fun startBotAuth(link: Boolean = false): BotAuthCode {
+        val reply = request("/functions/v1/platform-auth", JsonObject().apply {
+            addProperty("action", "start_code"); addProperty("link", link) }, if (link) token() else null)
         return BotAuthCode(reply.get("code").asString, reply.get("secret").asString)
     }
 

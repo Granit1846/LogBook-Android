@@ -282,13 +282,13 @@ class SyncViewModel(context: Context): ViewModel() {
     }
 
     /** Gets a one-time code from the server, opens the bot with it and waits for the bot to confirm. */
-    private fun botAuth(context: Context, botBase: String, name: String, onCode: (String) -> Unit,
+    private fun botAuth(context: Context, botBase: String, name: String, link: Boolean, onCode: (String) -> Unit,
                         waiting: (SyncUiState, Boolean) -> SyncUiState): Job {
         mutable.update { waiting(it, true).copy(message = "") }
         return viewModelScope.launch(Dispatchers.IO) {
             try {
                 val cl = client(false)
-                val code = cl.startBotAuth()
+                val code = cl.startBotAuth(link)
                 onCode(code.code)
                 withContext(Dispatchers.Main) { openBot(context, botBase + code.code) }
                 var attempts = 0
@@ -320,9 +320,9 @@ class SyncViewModel(context: Context): ViewModel() {
         }
     }
 
-    fun startTelegramAuth(context: Context) {
+    fun startTelegramAuth(context: Context, link: Boolean = false) {
         tgAuthJob?.cancel()
-        tgAuthJob = botAuth(context, "https://t.me/my_logbook_app_bot?start=", "Telegram", { activeTgAuthCode = it }) { s, w -> s.copy(telegramAuthWaiting = w) }
+        tgAuthJob = botAuth(context, "https://t.me/my_logbook_app_bot?start=", "Telegram", link, { activeTgAuthCode = it }) { s, w -> s.copy(telegramAuthWaiting = w) }
     }
 
     fun openTelegramAgain(context: Context) {
@@ -336,9 +336,9 @@ class SyncViewModel(context: Context): ViewModel() {
         mutable.update { it.copy(telegramAuthWaiting = false) }
     }
 
-    fun startMaxAuth(context: Context) {
+    fun startMaxAuth(context: Context, link: Boolean = false) {
         maxAuthJob?.cancel()
-        maxAuthJob = botAuth(context, "https://max.ru/se14711712_bot?start=", "MAX", { activeMaxAuthCode = it }) { s, w -> s.copy(maxAuthWaiting = w) }
+        maxAuthJob = botAuth(context, "https://max.ru/se14711712_bot?start=", "MAX", link, { activeMaxAuthCode = it }) { s, w -> s.copy(maxAuthWaiting = w) }
     }
 
     fun openMaxAgain(context: Context) {
@@ -369,8 +369,10 @@ class SyncViewModel(context: Context): ViewModel() {
         val currentMail = auth.read()?.email.orEmpty()
         val pilotIdMatch = Regex("^tg_(\\d+)@telegram\\.logbook$").find(currentMail)
         val pilotId = pilotIdMatch?.groupValues?.get(1) ?: ""
+        // An email account attaches the bot through a server-registered code; afterwards it opens the bot account.
+        if (pilotId.isBlank()) { if (target == "max") startMaxAuth(context, link = true) else startTelegramAuth(context, link = true); return }
         val token = java.util.UUID.randomUUID().toString().replace("-", "").take(8)
-        val param = if (pilotId.isNotBlank()) "link_${pilotId}_$token" else "auth_$token"
+        val param = "link_${pilotId}_$token"
         val url = if (target == "max") "https://max.ru/se14711712_bot?start=$param"
                   else "https://t.me/my_logbook_app_bot?start=$param"
         try {
@@ -536,9 +538,9 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                 }
                 TextButton(onClick=vm::logout,enabled=enabled && !state.busy) { Text(tr(R.string.msg_sign_out_026abb1)) }
             }
-            val allLinked = state.hasTelegram && state.hasMax && !state.linkedEmail.isNullOrBlank()
-            if (!allLinked) {
-                if (state.hasTelegram || state.hasMax || !state.linkedEmail.isNullOrBlank()) {
+            run {
+                val allLinked = state.hasTelegram && state.hasMax && !state.linkedEmail.isNullOrBlank()
+                if (!allLinked && (state.hasTelegram || state.hasMax || !state.linkedEmail.isNullOrBlank())) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                         if (state.hasTelegram) {
                             Surface(
@@ -606,13 +608,15 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                         }
                     }
                 }
-                if (state.linkedEmail.isNullOrBlank()) {
+                // A bot account can always set a new email or password; an email account already is one.
+                if (state.email.startsWith("tg_")) {
                     OutlinedButton(
                         onClick = { showLinkEmailDialog = true },
                         enabled = enabled && !state.busy,
                         modifier = Modifier.padding(top = 2.dp)
                     ) {
-                        Text("📧 Привязать Email к аккаунту", style = MaterialTheme.typography.bodySmall)
+                        Text(if (state.linkedEmail.isNullOrBlank()) "📧 Привязать Email к аккаунту" else "📧 Изменить Email или пароль",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
