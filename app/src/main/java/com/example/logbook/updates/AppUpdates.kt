@@ -193,10 +193,12 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                         break
                     }
 
-                    val totalBytes = connection.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
+                    if (connection.responseCode !in 200..299) throw java.io.IOException(tr(R.string.msg_update_download_failed_http, connection.responseCode))
+                    val serverBytes = connection.contentLengthLong
+                    val totalBytes = serverBytes.takeIf { it > 0 } ?: release.apkSize
                     if (apkFile.exists()) apkFile.delete()
 
-                    connection.inputStream.use { input ->
+                    val received = connection.inputStream.use { input ->
                         apkFile.outputStream().use { output ->
                             val buffer = ByteArray(32768)
                             var count: Int
@@ -227,9 +229,15 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                                     )
                                 }
                             }
+                            downloaded
                         }
                     }
                     connection.disconnect()
+                    // A dropped connection ends the stream early; installing that file only shows "package is invalid".
+                    if (serverBytes > 0 && received != serverBytes) {
+                        apkFile.delete()
+                        throw java.io.IOException(tr(R.string.msg_update_download_incomplete))
+                    }
                     apkFile
                 }
 
@@ -249,7 +257,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
                 mutableState.value = mutableState.value.copy(
                     isDownloading = false,
                     downloadProgress = null,
-                    downloadError = e.message ?: "Ошибка загрузки"
+                    downloadError = e.message ?: tr(R.string.msg_update_download_incomplete)
                 )
             }
         }

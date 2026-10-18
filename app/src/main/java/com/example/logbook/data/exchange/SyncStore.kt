@@ -16,7 +16,7 @@ import java.util.UUID
 data class SharedProfilePacket(val profileId: String,val name: String,val boardNumber: String,val payload: String)
 
 /** One coherent checkpoint. SQL IDs never leave the device; the wire uses stable UUIDs. */
-class SyncStore(private val context: Context, private val db: AppDatabase) {
+class SyncStore(private val context: Context, private val db: AppDatabase) : SyncLocal {
     companion object {
         val TABLES = listOf("profiles","days","launches","snk_values","chast1_start","chast1_records",
             "vr80_start","vr80_records","ta14_start","ta14_records","vk250001_start","vk250001_records",
@@ -97,7 +97,7 @@ class SyncStore(private val context: Context, private val db: AppDatabase) {
         add(endpoint); add(account)
     }.toString()
 
-    suspend fun checkpoint(endpoint: String, account: String): SyncStateEntity {
+    override suspend fun checkpoint(endpoint: String, account: String): SyncStateEntity {
         val shared = state()
         val checkpoints = JsonParser.parseString(shared.checkpointsJson).asJsonObject
         val saved = checkpoints.get(checkpointKey(endpoint, account))
@@ -132,7 +132,7 @@ class SyncStore(private val context: Context, private val db: AppDatabase) {
         )
     }
 
-    suspend fun saveCheckpoint(checkpoint: SyncStateEntity) = db.withTransaction {
+    override suspend fun saveCheckpoint(checkpoint: SyncStateEntity): Unit = db.withTransaction {
         val shared = state()
         val checkpoints = JsonParser.parseString(shared.checkpointsJson).asJsonObject
         if (checkpoint.baseJson.isNotBlank()) {
@@ -162,7 +162,7 @@ class SyncStore(private val context: Context, private val db: AppDatabase) {
         )
         db.syncStateDao().save(toSave)
     }
-    suspend fun snapshot(): String = db.withTransaction {
+    override suspend fun snapshot(): String = db.withTransaction {
         val state=state(); val identities=JsonParser.parseString(state.identityJson).asJsonObject
         val sql=db.openHelper.readableDatabase
         val tables=JsonObject()
@@ -372,7 +372,7 @@ class SyncStore(private val context: Context, private val db: AppDatabase) {
         }
         sql.query("PRAGMA foreign_key_check").use { require(!it.moveToFirst()) { tr(R.string.msg_data_relationships_are_invalid_9049aea) } }
     }
-    suspend fun download(payload: String, expectedLocal: String, revision: Long, endpoint: String, account: String) = db.withTransaction {
+    override suspend fun download(payload: String, expectedLocal: String, revision: Long, endpoint: String, account: String): String = db.withTransaction {
         require(same(snapshot(),expectedLocal)) { tr(R.string.msg_data_changed_during_synchronization_retry_the__ebac49d) }
         val decoded=decode(payload)
         val test=Room.inMemoryDatabaseBuilder(context,AppDatabase::class.java).build()

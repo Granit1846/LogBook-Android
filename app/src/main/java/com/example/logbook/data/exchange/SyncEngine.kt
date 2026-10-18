@@ -13,11 +13,19 @@ interface SyncRemote {
     suspend fun pull(): RemoteCheckpoint
     suspend fun commit(change: String, expected: Long, payload: String): CommitReply
 }
+/** The local side of an exchange; [SyncStore] on the device, a fake in tests. */
+interface SyncLocal {
+    suspend fun checkpoint(endpoint: String, account: String): com.example.logbook.data.local.entity.SyncStateEntity
+    suspend fun saveCheckpoint(checkpoint: com.example.logbook.data.local.entity.SyncStateEntity)
+    suspend fun snapshot(): String
+    /** Replaces local data with [payload] and returns the backup path. */
+    suspend fun download(payload: String, expectedLocal: String, revision: Long, endpoint: String, account: String): String
+}
 data class SyncConflict(val local: String, val remote: String, val revision: Long)
 data class SyncResult(val message: String, val conflict: SyncConflict? = null, val downloaded: Boolean = false,
     val direction: String = "Без изменений", val backup: String = "")
 
-class SyncEngine(private val store: SyncStore,private val remote: SyncRemote,private val endpoint: String,private val account: String) {
+class SyncEngine(private val store: SyncLocal,private val remote: SyncRemote,private val endpoint: String,private val account: String) {
     companion object { private val lock=Mutex() }
     suspend fun synchronize(): SyncResult = lock.withLock {
         var state=store.checkpoint(endpoint,account)

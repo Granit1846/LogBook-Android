@@ -185,7 +185,11 @@ class SyncViewModel(context: Context): ViewModel() {
             try {
                 val packets = store.sharedProfilePackets()
                 client(true).publishSharedProfiles(packets)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // The exchange itself succeeded; only the shared copies are stale, so add a note instead of failing.
+                mutable.update { it.copy(message = it.message + "\n" + tr(R.string.msg_shared_profiles_not_published, e.message.orEmpty())) }
+            }
         }
     }
 
@@ -278,7 +282,9 @@ class SyncViewModel(context: Context): ViewModel() {
             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             })
-        } catch (_: Exception) {}
+        } catch (_: android.content.ActivityNotFoundException) {
+            mutable.update { it.copy(message = tr(R.string.msg_cannot_open_link)) }
+        }
     }
 
     /** Gets a one-time code from the server, opens the bot with it and waits for the bot to confirm. */
@@ -305,17 +311,17 @@ class SyncViewModel(context: Context): ViewModel() {
                                 hasTelegram = tg,
                                 hasMax = mx,
                                 linkedEmail = mail,
-                                message = "Вход через $name выполнен",
+                                message = tr(R.string.msg_auth_signed_in_via, name),
                                 status = SyncStatus.SUCCESS
                             )
                         }
                         return@launch
                     }
                 }
-                mutable.update { waiting(it, false).copy(message = "Время ожидания входа через $name истекло. Повторите попытку.") }
+                mutable.update { waiting(it, false).copy(message = tr(R.string.msg_auth_timeout_via, name)) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                mutable.update { waiting(it, false).copy(message = e.message ?: "Ошибка авторизации через $name") }
+                mutable.update { waiting(it, false).copy(message = e.message ?: tr(R.string.msg_auth_error_via, name)) }
             }
         }
     }
@@ -359,7 +365,7 @@ class SyncViewModel(context: Context): ViewModel() {
         mutable.update {
             it.copy(
                 linkedEmail = email.trim().lowercase(),
-                message = "Email $email успешно привязан к аккаунту",
+                message = tr(R.string.msg_email_linked, email),
                 status = SyncStatus.SUCCESS
             )
         }
@@ -462,7 +468,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
             ) {
                 Icon(Icons.Default.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White)
                 Spacer(Modifier.width(8.dp))
-                Text("Войти через MAX", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleSmall)
+                Text(tr(R.string.msg_sign_in_with_max), color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleSmall)
             }
             Spacer(Modifier.height(8.dp))
             Button(
@@ -474,7 +480,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
             ) {
                 Icon(Icons.Default.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White)
                 Spacer(Modifier.width(8.dp))
-                Text("Войти через Telegram", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleSmall)
+                Text(tr(R.string.msg_sign_in_with_telegram), color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleSmall)
             }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -482,7 +488,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
             ) {
                 HorizontalDivider(modifier = Modifier.weight(1f))
                 Text(
-                    "  или через Email  ",
+                    tr(R.string.msg_or_with_email),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -567,7 +573,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                                 modifier = Modifier.padding(vertical = 2.dp)
                             ) {
                                 Text(
-                                    "✅ Email: ${state.linkedEmail}",
+                                    tr(R.string.msg_linked_email_badge, state.linkedEmail),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -584,7 +590,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                                 enabled = enabled && !state.busy,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("🔗 Связать с MAX", style = MaterialTheme.typography.bodySmall)
+                                Text(tr(R.string.msg_link_with_max), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         if (!state.hasTelegram) {
@@ -593,7 +599,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                                 enabled = enabled && !state.busy,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("🔗 Связать с Telegram", style = MaterialTheme.typography.bodySmall)
+                                Text(tr(R.string.msg_link_with_telegram), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -605,7 +611,7 @@ fun SyncSection(vm: SyncViewModel, enabled: Boolean, collapseInformation: Boolea
                         enabled = enabled && !state.busy,
                         modifier = Modifier.padding(top = 2.dp)
                     ) {
-                        Text(if (state.linkedEmail.isNullOrBlank()) "📧 Привязать Email к аккаунту" else "📧 Изменить Email или пароль",
+                        Text(if (state.linkedEmail.isNullOrBlank()) tr(R.string.msg_link_email_button) else tr(R.string.msg_change_email_button),
                             style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -628,11 +634,11 @@ private fun LinkEmailDialog(vm: SyncViewModel, onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Привязка Email к аккаунту") },
+        title = { Text(tr(R.string.msg_link_email_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Укажите Email и пароль, чтобы иметь возможность входить в этот же аккаунт с любого устройства без мессенджеров.",
+                    tr(R.string.msg_link_email_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -647,7 +653,7 @@ private fun LinkEmailDialog(vm: SyncViewModel, onDismiss: () -> Unit) {
                 OutlinedTextField(
                     value = passwordInput,
                     onValueChange = { passwordInput = it; errorText = "" },
-                    label = { Text("Пароль (мин. 6 симв.)") },
+                    label = { Text(tr(R.string.msg_password_min_label)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -656,7 +662,7 @@ private fun LinkEmailDialog(vm: SyncViewModel, onDismiss: () -> Unit) {
                 OutlinedTextField(
                     value = passwordConfirm,
                     onValueChange = { passwordConfirm = it; errorText = "" },
-                    label = { Text("Подтверждение пароля") },
+                    label = { Text(tr(R.string.msg_password_confirm_label)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -672,22 +678,22 @@ private fun LinkEmailDialog(vm: SyncViewModel, onDismiss: () -> Unit) {
                 onClick = {
                     val mail = emailInput.trim()
                     if (mail.isBlank() || !mail.contains("@") || !mail.contains(".")) {
-                        errorText = "Введите корректный email"
+                        errorText = tr(R.string.msg_enter_valid_email)
                         return@Button
                     }
                     if (passwordInput.length < 6) {
-                        errorText = "Пароль должен содержать не менее 6 символов"
+                        errorText = tr(R.string.msg_auth_password_min)
                         return@Button
                     }
                     if (passwordInput != passwordConfirm) {
-                        errorText = "Пароли не совпадают"
+                        errorText = tr(R.string.msg_passwords_do_not_match)
                         return@Button
                     }
                     vm.linkEmail(mail, passwordInput)
                     onDismiss()
                 }
             ) {
-                Text("Привязать")
+                Text(tr(R.string.msg_link_action))
             }
         },
         dismissButton = {
@@ -872,7 +878,7 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
         val context = androidx.compose.ui.platform.LocalContext.current
         AlertDialog(
             onDismissRequest = { vm.cancelTelegramAuth() },
-            title = { Text("Вход через Telegram") },
+            title = { Text(tr(R.string.msg_sign_in_telegram_title)) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -881,7 +887,7 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
                 ) {
                     CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF2AABEE))
                     Text(
-                        "Ожидание подтверждения в боте @my_logbook_app_bot…\n\nНажмите кнопку «Запустить» в Telegram.",
+                        tr(R.string.msg_wait_telegram_bot),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -889,7 +895,7 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
             },
             confirmButton = {
                 TextButton(onClick = { vm.openTelegramAgain(context) }) {
-                    Text("Открыть Telegram")
+                    Text(tr(R.string.msg_open_telegram))
                 }
             },
             dismissButton = {
@@ -903,7 +909,7 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
         val context = androidx.compose.ui.platform.LocalContext.current
         AlertDialog(
             onDismissRequest = { vm.cancelMaxAuth() },
-            title = { Text("Вход через MAX") },
+            title = { Text(tr(R.string.msg_sign_in_max_title)) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -912,7 +918,7 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
                 ) {
                     CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF0077FF))
                     Text(
-                        "Ожидание подтверждения в боте @se14711712_bot…\n\nНажмите «Запустить» в мессенджере MAX.",
+                        tr(R.string.msg_wait_max_bot),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -920,7 +926,7 @@ fun SyncDialogs(vm: SyncViewModel, onDownloaded: () -> Unit, silent: Boolean = f
             },
             confirmButton = {
                 TextButton(onClick = { vm.openMaxAgain(context) }) {
-                    Text("Открыть MAX")
+                    Text(tr(R.string.msg_open_max))
                 }
             },
             dismissButton = {

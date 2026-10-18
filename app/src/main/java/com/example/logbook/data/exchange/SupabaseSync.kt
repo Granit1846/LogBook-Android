@@ -21,28 +21,28 @@ import javax.net.ssl.HttpsURLConnection
 class SyncHttpError(val status: Int, val serverMessage: String? = null): Exception(when {
     serverMessage?.contains("email_not_confirmed", ignoreCase = true) == true ||
     serverMessage?.contains("Email not confirmed", ignoreCase = true) == true ->
-        "Email не подтверждён. Перейдите по ссылке из письма для активации аккаунта"
+        tr(R.string.msg_auth_email_not_confirmed)
     serverMessage?.contains("invalid_credentials", ignoreCase = true) == true ||
     serverMessage?.contains("Invalid login credentials", ignoreCase = true) == true ->
-        "Неверный email или пароль. Если вы ещё не регистрировались, нажмите «Регистрация»"
+        tr(R.string.msg_auth_invalid_credentials)
     serverMessage?.contains("user_already_exists", ignoreCase = true) == true ||
     serverMessage?.contains("User already registered", ignoreCase = true) == true ->
-        "Пользователь с таким email уже зарегистрирован. Нажмите «Войти»"
+        tr(R.string.msg_auth_user_exists)
     serverMessage?.contains("email_address_invalid", ignoreCase = true) == true ->
-        "Некорректный адрес email"
+        tr(R.string.msg_auth_email_invalid)
     serverMessage?.contains("email_taken", ignoreCase = true) == true ->
-        "Этот email уже занят другим аккаунтом"
+        tr(R.string.msg_auth_email_taken)
     serverMessage?.contains("not_bot_account", ignoreCase = true) == true ->
-        "Привязать email можно только к аккаунту, вошедшему через Telegram или MAX"
+        tr(R.string.msg_auth_not_bot_account)
     serverMessage?.contains("not_email_account", ignoreCase = true) == true ->
-        "Этот аккаунт уже вошёл через бота"
+        tr(R.string.msg_auth_not_email_account)
     serverMessage?.contains("not_email_alias", ignoreCase = true) == true ->
-        "Этот email больше не привязан к аккаунту. Войдите через бота и привяжите email заново"
+        tr(R.string.msg_auth_not_email_alias)
     serverMessage?.contains("invalid_link_email", ignoreCase = true) == true ->
-        "Проверьте email; пароль должен содержать от 6 до 72 символов"
+        tr(R.string.msg_auth_invalid_link_email)
     serverMessage?.contains("weak_password", ignoreCase = true) == true ||
     serverMessage?.contains("Password should be at least", ignoreCase = true) == true ->
-        "Пароль должен содержать не менее 6 символов"
+        tr(R.string.msg_auth_password_min)
     serverMessage?.contains("not_signed_in", ignoreCase = true) == true ||
     serverMessage?.contains("refresh_token_not_found", ignoreCase = true) == true ||
     serverMessage?.contains("Invalid Refresh Token", ignoreCase = true) == true ->
@@ -271,7 +271,7 @@ class SupabaseSync(private val endpoint: String,private val publicKey: String,pr
                 addProperty("action", "poll_code"); addProperty("code", code.code); addProperty("secret", code.secret)
             })
         } catch (error: SyncHttpError) {
-            if (error.status == 400) throw SyncHttpError(400, "Код входа не найден или истёк. Повторите попытку.")
+            if (error.status == 400) throw SyncHttpError(400, tr(R.string.msg_auth_code_not_found))
             throw error
         }
         val tokenHash = reply.get("tokenHash")?.takeIf { !it.isJsonNull }?.asString ?: return false
