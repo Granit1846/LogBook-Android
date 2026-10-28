@@ -475,8 +475,8 @@
     <string name="msg_component_assigned_f5ae699">"Component assigned"</string>
     <string name="msg_new_0f9ccee">"New"</string>
     <string name="msg_replace_d772cc5">"Replace"</string>
-    <string name="msg_enter_the_helicopter_serial_number_90369e1">"Enter the helicopter serial number"</string>
-    <string name="msg_helicopter_9b42e3b">"Helicopter"</string>
+    <string name="msg_enter_the_helicopter_serial_number_90369e1">"Enter the aircraft serial number"</string>
+    <string name="msg_helicopter_9b42e3b">"Aircraft"</string>
     <string name="msg_next_9c714cf">"Next"</string>
     <string name="msg_check_and_confirm_components_21f745a">"Check and confirm components"</string>
     <string name="msg_assigned_4d9f828">"assigned"</string>
