@@ -69,7 +69,7 @@ data class ReleaseManifest(
                 require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null) { tr(R.string.msg_invalid_link_102b915) }
             }
             val appId = data.get("applicationId")?.asString
-            require(appId == null || appId == "com.example.logbook") { tr(R.string.msg_build_for_another_application_d13ab83) }
+            require(appId == null || appId == "com.skeorz.lab.logbook") { tr(R.string.msg_build_for_another_application_d13ab83) }
             return ReleaseManifest(version, versionCode, url, data.get("notes")?.asString.orEmpty(), data.get("notesEn")?.asString.orEmpty())
         }
     }

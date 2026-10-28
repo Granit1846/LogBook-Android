@@ -1,6 +1,7 @@
 package com.example.logbook.updates
 
 import com.example.logbook.R
+import com.example.logbook.BuildConfig
 import com.example.logbook.localization.I18n.tr
 
 import android.app.Activity
@@ -75,6 +76,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
     }
 
     fun check(automatic: Boolean = false) {
+        if (!BuildConfig.IN_APP_UPDATES) return
         if (mutableState.value.busy) return
         val today = LocalDate.now().toString()
         if (automatic && prefs.getString("last_attempt", "") == today) return
@@ -149,6 +151,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDownload(context: Context? = null) {
+        if (!BuildConfig.IN_APP_UPDATES) return
         val release = mutableState.value.release ?: return
         if (release.url.isBlank()) return
         if (mutableState.value.isDownloading) return
@@ -264,6 +267,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
     }
 
     fun installDownloadedApk(context: Context) {
+        if (!BuildConfig.IN_APP_UPDATES) return
         val file = mutableState.value.downloadedFile ?: return
         installApk(context, file)
     }
@@ -273,6 +277,7 @@ class AppUpdates(application: Application) : AndroidViewModel(application) {
     }
 
     fun installApk(context: Context, apkFile: File) {
+        if (!BuildConfig.IN_APP_UPDATES) return
         try {
             val app = getApplication<Application>()
             val activity = context.findActivity()

@@ -1,8 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    // UTF-8: the keystore path may contain Cyrillic (the Windows user folder).
+    if (keystorePropertiesFile.exists()) keystorePropertiesFile.reader(Charsets.UTF_8).use { load(it) }
 }
 
 android {
@@ -12,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.logbook"
+        applicationId = "com.skeorz.lab.logbook"
         minSdk = 26
         targetSdk = 37
         versionCode = 34
@@ -21,11 +29,36 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "store"
+    productFlavors {
+        create("github") {
+            dimension = "store"
+            buildConfigField("boolean", "IN_APP_UPDATES", "true")
+        }
+        create("rustore") {
+            dimension = "store"
+            buildConfigField("boolean", "IN_APP_UPDATES", "false")
+        }
+    }
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
+            isDebuggable = false
+            if (keystorePropertiesFile.exists()) signingConfig = signingConfigs.getByName("release")
+            // shortcut: R8 is off — the partial packageScope build crashed at launch (IllegalAccessError) and Gson
+            // reflects over many classes; enable it only together with a device test of sync, backup and import.
             optimization {
-                enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                enable = false
+                proguardFiles("proguard-rules.pro")
             }
         }
     }
@@ -35,6 +68,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

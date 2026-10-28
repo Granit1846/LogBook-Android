@@ -1,6 +1,7 @@
 package com.example.logbook.ui.settings
 
 import com.example.logbook.R
+import com.example.logbook.BuildConfig
 import com.example.logbook.localization.I18n.tr
 
 import androidx.compose.foundation.layout.Arrangement
@@ -202,11 +203,13 @@ internal fun SettingsContent(
             onValueChange = onAutoSaveChange
         )
 
-        SwitchSetting(
-            label = tr(R.string.msg_check_for_updates_automatically_97ae112),
-            value = settings.autoCheckUpdates,
-            onValueChange = onAutoCheckUpdatesChange
-        )
+        if (BuildConfig.IN_APP_UPDATES) {
+            SwitchSetting(
+                label = tr(R.string.msg_check_for_updates_automatically_97ae112),
+                value = settings.autoCheckUpdates,
+                onValueChange = onAutoCheckUpdatesChange
+            )
+        }
 
         SwitchSetting(
             label = tr(R.string.msg_sync_on_finish_day),

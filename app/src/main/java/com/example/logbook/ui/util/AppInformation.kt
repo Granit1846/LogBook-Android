@@ -1,6 +1,7 @@
 package com.example.logbook.ui.util
 
 import com.example.logbook.R
+import com.example.logbook.BuildConfig
 import com.example.logbook.localization.I18n.tr
 
 import android.app.Activity
@@ -36,8 +37,12 @@ fun AppInformationHost(autoCheck: Boolean?, content: @Composable () -> Unit) {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
         catch (_: Exception) { Toast.makeText(context, tr(R.string.msg_could_not_open_the_link_228c903), Toast.LENGTH_LONG).show() }
     }
-    val checkUpdates = { showInformation = false; updates.check() }
-    LaunchedEffect(autoCheck) { if (autoCheck == true) updates.check(automatic = true) }
+    val checkUpdates = {
+        showInformation = false
+        if (BuildConfig.IN_APP_UPDATES) updates.check()
+        else openLink("https://www.rustore.ru/catalog/app/com.skeorz.lab.logbook")
+    }
+    LaunchedEffect(autoCheck) { if (BuildConfig.IN_APP_UPDATES && autoCheck == true) updates.check(automatic = true) }
     CompositionLocalProvider(LocalInformationActions provides InformationActions({ showInformation = true }, checkUpdates, updates.version)) { content() }
     if (showInformation) AlertDialog(onDismissRequest = { showInformation = false },
         title = { Text(tr(R.string.msg_about_logbook_b93832a)) },
